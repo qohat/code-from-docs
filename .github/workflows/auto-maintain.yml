@@ -26,6 +26,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Claude ONLY edits code + tests. The runner (reusable-claude) deterministically
+  # branches from main, formats, commits and pushes — no AI cost for git plumbing.
   implement:
     name: Implement issue
     # Manual dispatch, or the moment the `auto-maintain` label is added.
@@ -34,82 +36,88 @@ jobs:
       github.event.label.name == 'auto-maintain'
     uses: ./.github/workflows/reusable-claude.yml
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      id-token: write
+      contents: write # push the work branch
+      issues: read # read the issue
+      id-token: write # claude-code-action OAuth (OIDC)
     with:
+      base_ref: main
+      work_branch: auto/issue-${{ github.event.issue.number || inputs.issue_number }}
+      format_cmd: cargo fmt --all
+      commit_message: "auto-maintain: implement #${{ github.event.issue.number || inputs.issue_number }}"
       claude_args: |
         --max-turns 40
         --model claude-sonnet-4-6
-        --allowedTools Read,Glob,Grep,Edit,Write,Bash(git:*),Bash(gh:*),Bash(cargo:*)
+        --allowedTools Read,Glob,Grep,Edit,Write,Bash(cargo:*),Bash(gh:*)
       prompt: |
-        Implement a GitHub issue and open a pull request for human review.
+        Implement GitHub issue #${{ github.event.issue.number || inputs.issue_number }} in this Rust crate.
 
-        Issue: #${{ github.event.issue.number || inputs.issue_number }}
+        IMPORTANT: the workflow has ALREADY created your branch
+        (`auto/issue-${{ github.event.issue.number || inputs.issue_number }}`) from the latest `main`, and it will
+        format, commit, push and open the PR for you. So DO NOT create branches,
+        run git, commit, push, or open a PR — just edit files in the working tree.
 
         Steps:
         1. Read the issue: `gh issue view ${{ github.event.issue.number || inputs.issue_number }}`.
-        2. Read `CLAUDE.md` and the relevant `docs/` sections for conventions and
-           acceptance criteria. Honour the functional-core rules (immutability,
-           pure planner/tools, no panics, no network in the core).
-        3. Create a branch: `auto/issue-${{ github.event.issue.number || inputs.issue_number }}`.
-        4. Work test-first (TDD), always:
-             a. Write the failing test(s) in `tests/` that encode the acceptance
-                criteria. Run `cargo test` and SEE THEM FAIL.
-             b. Implement the minimum code under `src/` to make them pass.
-             c. Refactor with tests still green.
-        5. QUALITY GATE — run these and fix until ALL pass. Do NOT open a PR if any
-           of them fails:
-             - `cargo fmt --all`            (format)
-             - `cargo build --all-targets`  (build)
-             - `cargo clippy --all-targets -- -D warnings`
-             - `cargo test --all-targets`
-           If cargo is unavailable on the runner, install the Rust toolchain first
-           (e.g. via rustup) — do not skip the gate.
-        6. Commit and push the branch.
-        7. Open a PR against `main` with:
-             - Title: the issue title.
-             - Body: "Closes #${{ github.event.issue.number || inputs.issue_number }}",
-               a summary, and testing notes stating that fmt/build/clippy/test all
-               passed locally and that the change was built test-first.
-        Do NOT merge. Leave the PR for a human to review.
+        2. Read `CLAUDE.md` and the relevant `docs/` sections for conventions.
+           Honour the functional-core rules (immutability, pure planner/tools,
+           no panics, no network in the core).
+        3. Work test-first (TDD): write the failing test(s) in `tests/` that
+           encode the acceptance criteria, run `cargo test` and SEE THEM FAIL,
+           then implement the minimum under `src/` until green.
+        4. Self-check: `cargo build --all-targets`,
+           `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`.
+           (Formatting is applied by the workflow — no need to run `cargo fmt`.)
+        5. If you implemented a documented capability, flip its entry in
+           `docs/02-agent-harness.md` from 🚧 Planned to ✅ Implemented.
+
+        Leave ALL changes uncommitted in the working tree.
     secrets: inherit
 
-  # Find the PR that `implement` opened for this issue's branch.
-  resolve-pr:
-    name: Resolve PR number
+  # Deterministically open (or reuse) the PR for the pushed branch — via gh, no AI.
+  open-pr:
+    name: Open pull request
     needs: implement
     if: success()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      pull-requests: read
+      contents: read
+      issues: read
+      pull-requests: write
     outputs:
-      pr: ${{ steps.find.outputs.pr }}
+      pr: ${{ steps.pr.outputs.pr }}
     steps:
-      - name: Find PR for branch
-        id: find
+      - uses: actions/checkout@v4
+      - name: Create or reuse PR
+        id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+          N: ${{ github.event.issue.number || inputs.issue_number }}
         run: |
-          branch="auto/issue-${ISSUE}"
-          pr=$(gh pr list --repo "${GITHUB_REPOSITORY}" --head "${branch}" \
-                 --state all --json number --jq '.[0].number' 2>/dev/null || true)
+          branch="auto/issue-${N}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open \
+                 --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$pr" ]; then
+            title=$(gh issue view "$N" --repo "$GITHUB_REPOSITORY" --json title --jq .title)
+            body=$(printf 'Closes #%s\n\nImplemented by auto-maintain: branched from main, built test-first, formatted deterministically. Review before merge.' "$N")
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "$title" --body "$body"
+            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open \
+                   --json number --jq '.[0].number')
+          fi
           echo "pr=${pr}" >> "$GITHUB_OUTPUT"
-          echo "Resolved PR for ${branch}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR for ${branch}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"
 
   # Report the Claude session cost as a comment on that PR (reusable block).
   comment-cost:
     name: Comment session cost
-    needs: [implement, resolve-pr]
-    if: success() && needs.resolve-pr.outputs.pr != ''
+    needs: [implement, open-pr]
+    if: success() && needs.open-pr.outputs.pr != ''
     permissions:
       pull-requests: write
     uses: ./.github/workflows/reusable-pr-comment.yml
     with:
-      pr_number: ${{ needs.resolve-pr.outputs.pr }}
+      pr_number: ${{ needs.open-pr.outputs.pr }}
       body: |
         ### 🤖 Auto-maintain — session cost
 

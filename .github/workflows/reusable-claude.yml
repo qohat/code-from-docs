@@ -21,6 +21,26 @@ on:
         required: false
         type: string
         default: ""
+      base_ref:
+        description: "Base branch to start work from (with work_branch). Deterministic 'always start from main'."
+        required: false
+        type: string
+        default: ""
+      work_branch:
+        description: "If set, the runner creates this branch from origin/base_ref BEFORE Claude, and commits + pushes it AFTER. Claude only edits files."
+        required: false
+        type: string
+        default: ""
+      format_cmd:
+        description: "Formatter to run (in the runner, not the model) before committing, e.g. 'cargo fmt --all'."
+        required: false
+        type: string
+        default: ""
+      commit_message:
+        description: "Commit message for the runner-made commit on work_branch."
+        required: false
+        type: string
+        default: "auto-maintain: implement change"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -57,6 +77,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # Deterministic "start from main": base the work branch on the latest
+      # base_ref so the model never spends turns (or money) on git plumbing.
+      - name: Prepare work branch
+        if: inputs.work_branch != ''
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+          WORK_BRANCH: ${{ inputs.work_branch }}
+        run: |
+          base="${BASE_REF:-main}"
+          git fetch origin "$base"
+          git checkout -B "$WORK_BRANCH" "origin/$base"
+
       - name: Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -85,3 +117,24 @@ jobs:
           echo "cost_usd=${cost:-0}" >> "$GITHUB_OUTPUT"
           echo "num_turns=${turns:-0}" >> "$GITHUB_OUTPUT"
           echo "Claude session cost: \$${cost:-0} (${turns:-0} turns)" >> "$GITHUB_STEP_SUMMARY"
+
+      # Deterministic formatting + commit + push (runner, not the model). This is
+      # why in-session formatting was unreliable: enforce it here instead.
+      - name: Format, commit and push work branch
+        if: success() && inputs.work_branch != ''
+        env:
+          WORK_BRANCH: ${{ inputs.work_branch }}
+          FORMAT_CMD: ${{ inputs.format_cmd }}
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+        run: |
+          if [ -n "$FORMAT_CMD" ]; then
+            echo "Running formatter: $FORMAT_CMD"
+            eval "$FORMAT_CMD"
+          fi
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::warning::Claude produced no changes — nothing to commit."
+          else
+            git commit -m "$COMMIT_MESSAGE"
+            git push --force origin "$WORK_BRANCH"
+          fi

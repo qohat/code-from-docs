@@ -124,7 +124,7 @@ flowchart LR
 |----------|---------|------|
 | `generate-backlog.yml` | manual, or dispatched by `docs-watch` | hashes docs vs `specs/backlog-state.json` (memory), files one issue per **new/changed** Planned capability, commits updated state |
 | `docs-watch.yml` | push to `docs/**` | translates the push into a `workflow_dispatch` of `generate-backlog` (the Claude action rejects raw `push` events) |
-| `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>`, opens a PR, and comments the Claude **session cost** on it |
+| `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | runner branches `auto/issue-<n>` from `main` and formats/commits/pushes (git, not AI); Claude only writes code + tests; then opens a PR and comments the Claude **session cost** |
 | `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `cargo build`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
 | `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless); outputs `cost_usd` and `num_turns` for the session |
 | `reusable-notify.yml` | `workflow_call` | maps a `success`/`failure` outcome to a standardized title/message and calls `reusable-discord` (used once per workflow with `if: always()`) |
