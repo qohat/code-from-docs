@@ -10,6 +10,7 @@
 pub mod agent;
 pub mod harness;
 pub mod message;
+pub mod render;
 pub mod tool;
 
 pub use agent::{Agent, Call, Decision, Planner};
