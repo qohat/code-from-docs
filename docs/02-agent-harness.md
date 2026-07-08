@@ -66,3 +66,9 @@ Introduce a `Provider` trait behind the `Planner` seam so a real LLM can back th
 planner, with the pure `fn` planner remaining the default/test double.
 **Acceptance:** `trait Provider { fn plan(&self, &Conversation) -> Decision }`;
 core modules stay free of network code; the demo still runs offline.
+
+### 🚧 C11 — Conversation role counting
+A pure helper to count how many messages in a `Conversation` have a given role,
+useful for inspection and budgeting.
+**Acceptance:** `Conversation::count_role(&self, role: Role) -> usize`; does not
+allocate a new conversation; unit-tested; no I/O.
