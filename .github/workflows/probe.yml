@@ -1,0 +1,9 @@
+name: Probe
+on:
+  workflow_dispatch:
+jobs:
+  p:
+    uses: ./.github/workflows/reusable-claude.yml
+    secrets: inherit
+    with:
+      prompt: "Say hi and stop."
