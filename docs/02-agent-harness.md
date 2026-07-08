@@ -43,7 +43,7 @@ A configurable retry wrapper for flaky tools: retry up to N times on
 **Acceptance:** `RetryPolicy { max_attempts, should_retry: fn(&ToolError)->bool }`;
 the harness records each attempt in the transcript; deterministic under tests.
 
-### 🚧 C7 — Structured tool I/O
+### ✅ C7 — Structured tool I/O
 Let a tool declare a typed input/output via `serde` so the planner can pass
 JSON instead of a bare string, while keeping the pure-function contract.
 **Acceptance:** a `TypedTool<In, Out>` adapter; existing string tools still work;
