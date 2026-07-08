@@ -163,6 +163,10 @@ This repo is a portable template. To wire the same pipeline into another project
 (any language), follow **[ADOPTING.md](ADOPTING.md)** — it lists which files to
 copy, what to change per repo, and the non-obvious gotchas already solved.
 
+Each auto-maintain run costs a Claude session; **[COST.md](COST.md)** explains
+the cost model with real numbers and why the `GH_PAT` design makes runs cheaper
+(git/PR plumbing leaves the paid session) and guaranteed to pass CI.
+
 ## Run the demo locally
 
 ```bash

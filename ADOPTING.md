@@ -109,7 +109,7 @@ These are non-obvious and cost real debugging — don't "simplify" them away:
 | 8 permission denials, 0 issues created | Use broad **`Bash(gh:*)`**, not granular `Bash(gh issue create:*)` (multi-word prefixes don't match). |
 | `GitHub Actions is not permitted to create or approve pull requests` | The Actions `GITHUB_TOKEN` cannot open PRs. Use a **`GH_PAT`** for `git push` + `gh pr create` (a real user token), which also makes the PR trigger `ci.yml`. |
 | Bot PR gets no CI run | A PR opened by `GITHUB_TOKEN` does not fire `on: pull_request`. Open it with the PAT instead. |
-| Session cost too high | The waste is git plumbing (e.g. retried `gh pr create`), not the checks. Do ALL git/PR in the runner (deterministic, no AI) and let Claude spend only on implementing + running the checks to green. |
+| Session cost too high | The waste is git plumbing (e.g. retried `gh pr create`), not the checks. Do ALL git/PR in the runner (deterministic, no AI) and let Claude spend only on implementing + running the checks to green. See **[COST.md](COST.md)** for the numbers and the `GH_PAT` rationale. |
 
 ## 6. First run
 
