@@ -1,0 +1,36 @@
+name: Reusable · PR Comment
+
+# Reusable building block: posts a comment on a pull request. Kept generic so any
+# caller can report anything (auto-maintain uses it to report Claude session cost).
+# No permissions block on purpose — the caller grants `pull-requests: write`, and
+# a reusable job requesting more than the caller allows fails the run at startup.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "Pull request number to comment on."
+        required: true
+        type: string
+      body:
+        description: "Markdown comment body."
+        required: true
+        type: string
+
+jobs:
+  comment:
+    name: Post PR comment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          BODY: ${{ inputs.body }}
+        run: |
+          if [ -z "${PR}" ]; then
+            echo "::warning::No PR number provided — skipping comment."
+            exit 0
+          fi
+          gh pr comment "${PR}" --repo "${GITHUB_REPOSITORY}" --body "${BODY}"

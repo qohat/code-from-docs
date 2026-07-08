@@ -1,0 +1,44 @@
+name: Reusable · Notify Outcome
+
+# Standardized success/failure notification. Wraps reusable-discord so callers
+# invoke this ONCE (with `if: always()`), passing the computed outcome and a
+# context label, instead of duplicating separate notify-success / notify-failure
+# jobs in every workflow.
+
+on:
+  workflow_call:
+    inputs:
+      status:
+        description: "Outcome to report: success | failure."
+        required: true
+        type: string
+      context:
+        description: "Pipeline name shown in the notification (e.g. 'Backlog generation')."
+        required: true
+        type: string
+      success_message:
+        description: "Body used when status is success."
+        required: false
+        type: string
+        default: "Completed successfully."
+      failure_message:
+        description: "Body used when status is failure."
+        required: false
+        type: string
+        default: "Failed — check the workflow run logs."
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: false
+
+jobs:
+  emit:
+    name: Emit notification
+    # Guard against an unexpected status; only success/failure produce a message.
+    if: inputs.status == 'success' || inputs.status == 'failure'
+    uses: ./.github/workflows/reusable-discord.yml
+    with:
+      status: ${{ inputs.status }}
+      title: ${{ inputs.status == 'success' && format('✅ {0} succeeded', inputs.context) || format('❌ {0} failed', inputs.context) }}
+      message: ${{ inputs.status == 'success' && inputs.success_message || inputs.failure_message }}
+    secrets:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

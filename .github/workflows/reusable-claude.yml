@@ -24,6 +24,13 @@ on:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
+    outputs:
+      cost_usd:
+        description: "Total USD cost of the Claude session."
+        value: ${{ jobs.claude.outputs.cost_usd }}
+      num_turns:
+        description: "Number of turns the Claude session took."
+        value: ${{ jobs.claude.outputs.num_turns }}
 
 jobs:
   claude:
@@ -35,6 +42,9 @@ jobs:
     # job inherits whatever the calling workflow grants, so each caller keeps
     # its own least-privilege `permissions:` (backlog = issues only;
     # auto-maintain = contents/issues/PR write).
+    outputs:
+      cost_usd: ${{ steps.cost.outputs.cost_usd }}
+      num_turns: ${{ steps.cost.outputs.num_turns }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,6 +58,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Claude Code
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -56,3 +67,21 @@ jobs:
           # Allow bot-initiated runs: docs-watch dispatches generate-backlog as
           # the github-actions bot, which the action blocks unless listed here.
           allowed_bots: "*"
+
+      - name: Extract session cost
+        id: cost
+        if: always()
+        run: |
+          # The action writes a JSON log with a "result" event holding the cost.
+          f="${{ steps.claude.outputs.execution_file }}"
+          [ -n "$f" ] && [ -f "$f" ] || f="$RUNNER_TEMP/claude-execution-output.json"
+          cost=0
+          turns=0
+          if [ -f "$f" ]; then
+            # Works whether the file is a JSON array or a stream of JSON objects.
+            cost=$(jq -r '.. | objects | select(.type? == "result") | .total_cost_usd // empty' "$f" 2>/dev/null | tail -1)
+            turns=$(jq -r '.. | objects | select(.type? == "result") | .num_turns // empty' "$f" 2>/dev/null | tail -1)
+          fi
+          echo "cost_usd=${cost:-0}" >> "$GITHUB_OUTPUT"
+          echo "num_turns=${turns:-0}" >> "$GITHUB_OUTPUT"
+          echo "Claude session cost: \$${cost:-0} (${turns:-0} turns)" >> "$GITHUB_STEP_SUMMARY"
