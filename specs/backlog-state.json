@@ -10,8 +10,8 @@
     "trigger": "workflow_dispatch"
   },
   "docs/02-agent-harness.md": {
-    "sha256": "600c2669630fce4e43002fa7f074eec17801e6d906d851eb3afa5ac19b5425a9",
-    "processed_at": "2026-07-08T13:07:36Z",
+    "sha256": "bd38113bdaf6f047d389d001b807ea7a187feca35bacafba0234d9d0543ee5e6",
+    "processed_at": "2026-07-08T13:56:13Z",
     "trigger": "workflow_dispatch"
   },
   "docs/03-roadmap.md": {
