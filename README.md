@@ -39,10 +39,82 @@ edit docs/ ──▶ generate-backlog ──▶ GitHub issues ──▶ auto-mai
     └── reusable-discord.yml  # reusable: Discord notifications
 ```
 
+## Harness architecture
+
+The Rust crate is a **functional-core** agent harness: the core is pure and
+deterministic (no I/O, no mutation), and every side effect lives at the edge in
+`main.rs`. The single place a real LLM would plug in is the `Planner` — a plain
+`fn(&Conversation) -> Decision`.
+
+### Modules & dependencies
+
+```mermaid
+flowchart TD
+    subgraph EDGE["🔌 Edge — side effects allowed"]
+        MAIN["main.rs<br/>wire tools + planner · print transcript"]
+    end
+    subgraph CORE["🧊 Functional core — pure · deterministic · no I/O"]
+        HARNESS["harness.rs<br/>run() · bounded fold loop"]
+        AGENT["agent.rs<br/>Agent · Planner · Decision"]
+        TOOL["tool.rs<br/>Tool · Toolbox · ToolError"]
+        MSG["message.rs<br/>Message · Conversation (immutable)"]
+    end
+    MAIN --> HARNESS
+    HARNESS --> AGENT
+    HARNESS --> TOOL
+    HARNESS --> MSG
+    AGENT --> MSG
+```
+
+### The run loop
+
+`run(agent, tools, task, max_steps)` seeds a conversation and folds one
+`Decision` at a time. Tool results become observations fed back to the planner;
+the loop stops on `Reply` or when the step budget is spent (`Exhausted`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Caller (task)
+    participant H as harness::run
+    participant P as Planner (Agent)
+    participant T as Toolbox
+    U->>H: task + max_steps
+    Note over H: seed Conversation<br/>[System, User]
+    loop until Reply or max_steps
+        H->>P: decide(conversation)
+        alt Decision::UseTool { tool, input }
+            P-->>H: use a tool
+            H->>T: invoke(tool, input)
+            T-->>H: observation (Ok | error-as-value)
+            Note over H: append Assistant call + Tool observation
+        else Decision::Reply(answer)
+            P-->>H: final answer
+            H-->>U: Outcome::Replied(answer)
+        end
+    end
+    Note over H,U: budget exhausted → Outcome::Exhausted
+```
+
 ## How the workflows fit together
 
 The pipeline is split into **reusable** building blocks and thin **caller**
 workflows that only orchestrate:
+
+```mermaid
+flowchart LR
+    DOCS["📄 docs/*.md<br/>source of truth"] -->|push to docs/ or manual| GB["generate-backlog.yml"]
+    GB --> RC1["reusable-claude<br/>reads docs + src"]
+    RC1 -->|gh issue create| ISSUES["🗂️ Issues<br/>labels: spec, auto-maintain"]
+    ISSUES -->|label auto-maintain| AM["auto-maintain.yml"]
+    AM --> RC2["reusable-claude<br/>implements the issue"]
+    RC2 -->|branch auto/issue-N + PR| PR["🔀 Pull request"]
+    PR --> CI["ci.yml<br/>fmt · clippy · test"]
+    CI --> HUMAN["👤 human review & merge"]
+    GB -. success/failure .-> DISCORD["reusable-discord"]
+    AM -. success/failure .-> DISCORD
+```
+
 
 | Workflow | Trigger | Does |
 |----------|---------|------|
@@ -81,9 +153,10 @@ cargo test           # behavioural tests
 cargo clippy --all-targets -- -D warnings
 ```
 
-## Changing behaviour
+## Contributing
 
-Edit `docs/` first, then push. The delta becomes issues, issues become PRs.
-`CLAUDE.md` defines the coding conventions the agent must follow, including
-flipping a capability from 🚧 Planned to ✅ Implemented in the same PR so it
-isn't re-filed.
+Contributions are **docs-first**: you describe behaviour in `docs/`, let
+`generate-backlog` turn it into spec issues, and let `auto-maintain` (or a
+human) implement them. The full workflow — including how to run the backlog
+generator — is in **[CONTRIBUTING.md](CONTRIBUTING.md)**. Coding conventions the
+agent (and you) must follow live in [CLAUDE.md](CLAUDE.md).
