@@ -39,26 +39,38 @@ To propose new behaviour:
 ## 2. Generate the spec backlog
 
 Turn the docs into issues with the **Generate Backlog from Docs** workflow. It
-reads `docs/` + `src/`, skips anything already implemented or already tracked,
-and files one issue per 🚧 capability (labels `spec` + `auto-maintain`).
+files one issue per 🚧 capability (labels `spec` + `auto-maintain`).
 
-**Preview first (dry run — creates nothing):**
+It has a **memory**: `specs/backlog-state.json` records a `sha256` per doc, so
+each run only processes docs that are **new or changed** and never re-files what
+it has already seen. A push under `docs/**` triggers it automatically; you can
+also run it manually.
+
+**Preview first (dry run — creates nothing, doesn't touch the state file):**
 
 ```bash
-gh workflow run "Generate Backlog from Docs" \
-  -f dry_run=true -f docs_path=docs
+gh workflow run "Generate Backlog from Docs" -f dry_run=true
 # watch it:
 gh run watch "$(gh run list --workflow 'Generate Backlog from Docs' \
   --limit 1 --json databaseId -q '.[0].databaseId')"
 ```
 
-**Create the issues for real:**
+**Create the issues for real** (only new/changed docs are processed):
 
 ```bash
-gh workflow run "Generate Backlog from Docs" -f dry_run=false
+gh workflow run "Generate Backlog from Docs"
+```
+
+**Reprocess everything, ignoring the memory** (e.g. after editing many docs):
+
+```bash
+gh workflow run "Generate Backlog from Docs" -f force=true
 ```
 
 Or from the UI: **Actions → Generate Backlog from Docs → Run workflow**.
+
+> The memory is deterministic and lives in a `detect` job (sha256 diff); Claude
+> only ever sees the changed docs, and a `persist` job commits the updated state.
 
 ## 3. Implement an issue
 

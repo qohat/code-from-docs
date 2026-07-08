@@ -28,7 +28,8 @@ edit docs/ ──▶ generate-backlog ──▶ GitHub issues ──▶ auto-mai
 │   ├── lib.rs
 │   └── main.rs               # runnable demo
 ├── tests/                    # behavioural tests
-├── specs/                    # (optional) persisted backlog artifacts
+├── specs/
+│   └── backlog-state.json    # MEMORY: sha256 per doc already turned into issues
 ├── CLAUDE.md                 # conventions the coding agent must follow
 ├── .env.example              # required secret NAMES (no values)
 └── .github/workflows/
@@ -118,7 +119,7 @@ flowchart LR
 
 | Workflow | Trigger | Does |
 |----------|---------|------|
-| `generate-backlog.yml` | manual, or push to `docs/**` | reads docs + `src/`, files one issue per Planned capability (no duplicates) |
+| `generate-backlog.yml` | manual, or push to `docs/**` | hashes docs vs `specs/backlog-state.json` (memory), files one issue per **new/changed** Planned capability, commits updated state |
 | `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>` and opens a PR |
 | `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
 | `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless) |

@@ -1,9 +1,12 @@
 name: Generate Backlog from Docs
 
-# docs/ -> GitHub issues.
-# Reads the product docs (and the current src/), then files one issue per
-# not-yet-implemented capability. Orchestration only: the heavy lifting lives in
-# the reusable Claude runner; notifications live in the reusable Discord workflow.
+# docs/ -> GitHub issues, with memory.
+#
+# A deterministic `detect` job hashes every doc and compares it against the
+# committed state file (specs/backlog-state.json) so only NEW or CHANGED docs
+# are processed. Claude then files issues for those docs, and `persist` records
+# their hashes back into the state file. This makes the push trigger safe: a new
+# or edited doc is picked up automatically and never re-filed once recorded.
 
 on:
   workflow_dispatch:
@@ -13,8 +16,13 @@ on:
         required: false
         type: string
         default: "docs"
+      force:
+        description: "Reprocess ALL docs, ignoring the memory/state file."
+        required: false
+        type: boolean
+        default: false
       dry_run:
-        description: "Analyse only — print issues instead of creating them."
+        description: "Analyse only — print issues instead of creating them (skips persist)."
         required: false
         type: boolean
         default: false
@@ -23,10 +31,10 @@ on:
     paths:
       - "docs/**"
 
-# Least privilege for this pipeline: read the code, write issues. No PR/write.
-# `id-token: write` is required by claude-code-action's OAuth (OIDC) flow.
+# Union of what the jobs below need; each job narrows it further.
+# id-token: write is required by claude-code-action's OAuth (OIDC) flow.
 permissions:
-  contents: read
+  contents: write
   issues: write
   id-token: write
 
@@ -35,8 +43,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 1) Deterministic memory check: which docs are new or changed?
+  detect:
+    name: Detect changed docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      any: ${{ steps.diff.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diff docs against state file
+        id: diff
+        env:
+          DOCS: ${{ inputs.docs_path || 'docs' }}
+          FORCE: ${{ inputs.force }}
+          STATE: specs/backlog-state.json
+        run: |
+          [ -f "$STATE" ] || { mkdir -p "$(dirname "$STATE")"; echo '{}' > "$STATE"; }
+          changed=""
+          while IFS= read -r f; do
+            h=$(sha256sum "$f" | cut -d' ' -f1)
+            prev=$(jq -r --arg f "$f" '.[$f].sha256 // ""' "$STATE")
+            if [ "$FORCE" = "true" ] || [ "$h" != "$prev" ]; then
+              changed="$changed $f"
+            fi
+          done < <(find "$DOCS" -type f -name '*.md' | sort)
+          changed="$(echo "$changed" | xargs)"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          if [ -n "$changed" ]; then echo "any=true" >> "$GITHUB_OUTPUT"; else echo "any=false" >> "$GITHUB_OUTPUT"; fi
+          echo "### Changed docs" >> "$GITHUB_STEP_SUMMARY"
+          echo "${changed:-(none)}" >> "$GITHUB_STEP_SUMMARY"
+
+  # 2) Turn the changed docs into issues (reusable Claude runner).
   backlog:
     name: Docs → Issues
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
     uses: ./.github/workflows/reusable-claude.yml
     permissions:
       contents: read
@@ -44,49 +90,87 @@ jobs:
       id-token: write
     with:
       claude_args: |
-        --max-turns 20
+        --max-turns 25
         --model claude-sonnet-4-6
-        --allowedTools Read,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh label create:*)
+        --allowedTools Read,Glob,Grep,Bash(gh:*)
       prompt: |
-        You are the backlog generator for this repository. Turn the product docs
-        into a GitHub issue backlog that the auto-maintain workflow can implement.
+        You are the backlog generator. Turn the CHANGED docs below into a GitHub
+        issue backlog that the auto-maintain workflow can implement.
+
+        Changed docs to process (ONLY these): ${{ needs.detect.outputs.changed }}
 
         Steps:
-        1. Read every file under `${{ inputs.docs_path || 'docs' }}/`. Treat it as
-           the single source of truth for what the app should do. Pay attention to
+        1. Read each changed doc listed above. It is the source of truth. Note
            capabilities tagged "Planned" vs "Implemented".
         2. Read the Rust source under `src/` to confirm what already exists.
-        3. Run `gh issue list --state open --limit 100` and read the titles so you
+        3. Run `gh issue list --state all --limit 200` and read the titles so you
            DO NOT create duplicates (match on the capability, not exact wording).
-        4. For each "Planned" capability with no matching open issue, create ONE
-           small, independently-implementable issue:
-             - Title: a concise imperative spec (e.g. "Add retry policy to tools").
-             - Body: the behaviour, an acceptance-criteria checklist copied/adapted
-               from the doc, and a reference to the doc section (e.g. "docs/02 · C6").
-             - Labels: `spec` and `auto-maintain`.
-           Create labels first if missing:
+        4. Ensure labels exist:
            `gh label create spec --color 0e8a16 --force` and
            `gh label create auto-maintain --color 1d76db --force`.
-        5. If dry_run is "${{ inputs.dry_run }}" and that is true, DO NOT create
-           anything — print the issues you would create and stop.
+        5. For each "Planned" capability in the changed docs with no matching
+           issue, create ONE small, independently-implementable issue:
+             - Title: a concise imperative spec (e.g. "Add retry policy to tools").
+             - Body: the behaviour, an acceptance-criteria checklist adapted from
+               the doc, and a reference to the doc section (e.g. "docs/02 · C6").
+             - Labels: `spec` and `auto-maintain` (`gh issue create ... --label spec --label auto-maintain`).
+        6. If "${{ inputs.dry_run }}" is "true": DO NOT create anything — print the
+           issues you would create and stop.
 
-        Do not touch code. Keep issues small.
+        Keep issues small. Do not modify any files.
     secrets: inherit
+
+  # 3) Record the processed docs' hashes so they are not re-filed next time.
+  persist:
+    name: Persist backlog state
+    needs: [detect, backlog]
+    if: needs.detect.outputs.any == 'true' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update and commit state file
+        env:
+          CHANGED: ${{ needs.detect.outputs.changed }}
+          STATE: specs/backlog-state.json
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          [ -f "$STATE" ] || { mkdir -p "$(dirname "$STATE")"; echo '{}' > "$STATE"; }
+          ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          tmp="$(mktemp)"
+          for f in $CHANGED; do
+            h=$(sha256sum "$f" | cut -d' ' -f1)
+            jq --arg f "$f" --arg h "$h" --arg ts "$ts" --arg tr "$TRIGGER" \
+               '.[$f] = {sha256: $h, processed_at: $ts, trigger: $tr}' "$STATE" > "$tmp"
+            mv "$tmp" "$STATE"
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$STATE"
+          if git diff --cached --quiet; then
+            echo "No state change."
+          else
+            git commit -m "chore(backlog): record processed docs [skip ci]"
+            git push
+          fi
 
   notify-success:
     name: Notify (success)
-    needs: backlog
-    if: success()
+    needs: [detect, backlog, persist]
+    if: success() && needs.detect.outputs.any == 'true'
     uses: ./.github/workflows/reusable-discord.yml
     with:
       status: success
       title: "🗂️ Backlog generated from docs"
-      message: "Docs were analysed and the issue backlog is up to date."
+      message: "Processed changed docs and updated the issue backlog + state file."
     secrets: inherit
 
   notify-failure:
     name: Notify (failure)
-    needs: backlog
+    needs: [detect, backlog, persist]
     if: failure()
     uses: ./.github/workflows/reusable-discord.yml
     with:
