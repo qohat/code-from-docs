@@ -132,8 +132,14 @@ fn two_tool_batch(conversation: &Conversation) -> Decision {
 
     if tool_msgs.is_empty() {
         Decision::UseTools(vec![
-            Call { tool: "unknown".into(), input: "x".into() },
-            Call { tool: "reverse".into(), input: "abc".into() },
+            Call {
+                tool: "unknown".into(),
+                input: "x".into(),
+            },
+            Call {
+                tool: "reverse".into(),
+                input: "abc".into(),
+            },
         ])
     } else {
         let joined = tool_msgs
