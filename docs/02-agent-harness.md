@@ -30,7 +30,7 @@ back into the conversation, and stops on reply or `max_steps`.
 
 ## Planned
 
-### 🚧 C5 — Multi-tool decisions
+### ✅ C5 — Multi-tool decisions
 Allow the planner to return **several** tool calls from one decision and have the
 loop execute them (left to right), appending all observations before the next
 planner turn.
