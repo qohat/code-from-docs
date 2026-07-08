@@ -37,13 +37,11 @@ fn step(
             (next, Some(answer))
         }
         Decision::UseTool { tool, input } => {
-            let observation = match tools.invoke(&tool, &input) {
-                Ok(out) => out,
-                Err(err) => format!("error: {err}"),
-            };
-            let next = conversation
-                .with(Message::assistant(format!("call {tool}({input})")))
-                .with(Message::tool(observation));
+            let obs_list = tools.invoke_observations(&tool, &input);
+            let next = obs_list.iter().fold(
+                conversation.with(Message::assistant(format!("call {tool}({input})"))),
+                |conv, obs| conv.with(Message::tool(obs.clone())),
+            );
             (next, None)
         }
         Decision::UseTools(calls) => {
@@ -54,11 +52,10 @@ fn step(
                 .join(", ");
             let with_label = conversation.with(Message::assistant(label));
             let next = calls.iter().fold(with_label, |conv, call| {
-                let observation = match tools.invoke(&call.tool, &call.input) {
-                    Ok(out) => out,
-                    Err(err) => format!("error: {err}"),
-                };
-                conv.with(Message::tool(observation))
+                let obs_list = tools.invoke_observations(&call.tool, &call.input);
+                obs_list
+                    .iter()
+                    .fold(conv, |c, obs| c.with(Message::tool(obs.clone())))
             });
             (next, None)
         }

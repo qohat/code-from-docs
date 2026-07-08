@@ -37,7 +37,7 @@ planner turn.
 **Acceptance:** `Decision::UseTools(Vec<Call>)`; observations preserve order; a
 failing call becomes an error observation and does not abort the batch.
 
-### 🚧 C6 — Retry policy for tools
+### ✅ C6 — Retry policy for tools
 A configurable retry wrapper for flaky tools: retry up to N times on
 `ToolError`, with a pure backoff schedule (no real sleeping in tests).
 **Acceptance:** `RetryPolicy { max_attempts, should_retry: fn(&ToolError)->bool }`;
