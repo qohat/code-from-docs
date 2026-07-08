@@ -75,3 +75,47 @@ fn missing_tool_yields_not_found() {
         Err(ToolError::NotFound(_))
     ));
 }
+
+#[test]
+fn count_role_empty_conversation() {
+    let conv = Conversation::new();
+    assert_eq!(conv.count_role(Role::User), 0);
+    assert_eq!(conv.count_role(Role::Assistant), 0);
+    assert_eq!(conv.count_role(Role::System), 0);
+    assert_eq!(conv.count_role(Role::Tool), 0);
+}
+
+#[test]
+fn count_role_user() {
+    let conv = Conversation::new()
+        .with(Message::user("a"))
+        .with(Message::assistant("b"))
+        .with(Message::user("c"));
+    assert_eq!(conv.count_role(Role::User), 2);
+}
+
+#[test]
+fn count_role_assistant() {
+    let conv = Conversation::new()
+        .with(Message::assistant("x"))
+        .with(Message::user("y"))
+        .with(Message::assistant("z"));
+    assert_eq!(conv.count_role(Role::Assistant), 2);
+}
+
+#[test]
+fn count_role_system() {
+    let conv = Conversation::new()
+        .with(Message::system("prompt"))
+        .with(Message::user("hi"));
+    assert_eq!(conv.count_role(Role::System), 1);
+}
+
+#[test]
+fn count_role_tool() {
+    let conv = Conversation::new()
+        .with(Message::tool("result1"))
+        .with(Message::tool("result2"))
+        .with(Message::user("done"));
+    assert_eq!(conv.count_role(Role::Tool), 2);
+}

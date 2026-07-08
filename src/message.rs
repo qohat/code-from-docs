@@ -80,6 +80,11 @@ impl Conversation {
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
+
+    /// Returns the number of messages whose role matches `role`.
+    pub fn count_role(&self, role: Role) -> usize {
+        self.messages.iter().filter(|m| m.role == role).count()
+    }
 }
 
 impl FromIterator<Message> for Conversation {
