@@ -31,7 +31,11 @@ impl Agent {
         system_prompt: impl Into<String>,
         planner: Planner,
     ) -> Self {
-        Self { name: name.into(), system_prompt: system_prompt.into(), planner }
+        Self {
+            name: name.into(),
+            system_prompt: system_prompt.into(),
+            planner,
+        }
     }
 
     /// Ask the planner what to do next given `conversation`.
