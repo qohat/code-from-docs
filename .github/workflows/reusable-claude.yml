@@ -3,9 +3,10 @@ name: Reusable · Claude Code Runner
 # Reusable building block: checks out the repo and runs Claude Code headlessly.
 # The prompt can be inline (`prompt`) or, preferably, read from an editable file
 # (`prompt_file`) with `$VAR` placeholders substituted from `session_env`.
-# Optionally branches from `base_ref`, formats and pushes `work_branch` — all in
-# the runner (deterministic, no AI cost). Auth is an OAuth token passed as a
-# secret, never hard-coded. Invoke with `uses:` + `secrets: inherit`.
+# When `work_branch` is set, the runner deterministically bases it on the latest
+# `base_ref` BEFORE the session (so Claude starts from main without spending
+# turns on it); Claude then commits/pushes/opens the PR itself. Auth is an OAuth
+# token passed as a secret. Invoke with `uses:` + `secrets: inherit`.
 
 on:
   workflow_call:
@@ -41,37 +42,7 @@ on:
         type: string
         default: ""
       work_branch:
-        description: "If set, the runner creates this branch from origin/base_ref BEFORE Claude, and commits + pushes it AFTER. Claude only edits files."
-        required: false
-        type: string
-        default: ""
-      format_cmd:
-        description: "Formatter to run (in the runner, not the model) before committing, e.g. 'cargo fmt --all'."
-        required: false
-        type: string
-        default: ""
-      commit_message:
-        description: "Commit message for the runner-made commit on work_branch."
-        required: false
-        type: string
-        default: "auto-maintain: implement change"
-      open_pr:
-        description: "If true (and work_branch is set), open or reuse a PR for the pushed branch — deterministically, in the runner (no AI cost). CI runs on that PR, not here."
-        required: false
-        type: boolean
-        default: false
-      pr_base:
-        description: "Base branch for the PR (defaults to base_ref, then main)."
-        required: false
-        type: string
-        default: ""
-      pr_title:
-        description: "Title for the opened PR."
-        required: false
-        type: string
-        default: ""
-      pr_body:
-        description: "Body for the opened PR."
+        description: "If set, the runner creates this branch from origin/base_ref BEFORE Claude runs, so the session starts from the latest main. Claude then commits, pushes and opens the PR itself (its app token can create PRs and trigger CI; GITHUB_TOKEN cannot)."
         required: false
         type: string
         default: ""
@@ -85,9 +56,6 @@ on:
       num_turns:
         description: "Number of turns the Claude session took."
         value: ${{ jobs.claude.outputs.num_turns }}
-      pr_number:
-        description: "Number of the PR opened (or reused) for work_branch, when open_pr is set."
-        value: ${{ jobs.claude.outputs.pr_number }}
 
 jobs:
   claude:
@@ -102,7 +70,6 @@ jobs:
     outputs:
       cost_usd: ${{ steps.cost.outputs.cost_usd }}
       num_turns: ${{ steps.cost.outputs.num_turns }}
-      pr_number: ${{ steps.pr.outputs.pr_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -187,55 +154,3 @@ jobs:
           echo "cost_usd=${cost:-0}" >> "$GITHUB_OUTPUT"
           echo "num_turns=${turns:-0}" >> "$GITHUB_OUTPUT"
           echo "Claude session cost: \$${cost:-0} (${turns:-0} turns)" >> "$GITHUB_STEP_SUMMARY"
-
-      # Deterministic formatting + commit + push (runner, not the model). This is
-      # why in-session formatting was unreliable: enforce it here instead.
-      - name: Format, commit and push work branch
-        if: success() && inputs.work_branch != ''
-        env:
-          WORK_BRANCH: ${{ inputs.work_branch }}
-          FORMAT_CMD: ${{ inputs.format_cmd }}
-          COMMIT_MESSAGE: ${{ inputs.commit_message }}
-          # claude-code-action clears the checkout's persisted git credential, so
-          # push with an explicit tokenized URL (this token has contents: write).
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -n "$FORMAT_CMD" ]; then
-            echo "Running formatter: $FORMAT_CMD"
-            eval "$FORMAT_CMD"
-          fi
-          git add -A
-          if git diff --cached --quiet; then
-            echo "::warning::Claude produced no changes — nothing to commit."
-          else
-            git commit -m "$COMMIT_MESSAGE"
-            git push --force \
-              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-              "HEAD:refs/heads/${WORK_BRANCH}"
-          fi
-
-      # Deterministically open (or reuse) the PR for the pushed branch — via gh,
-      # no AI cost. This runner never runs the crate's CI; that's ci.yml's job on
-      # the resulting PR (pull_request event).
-      - name: Open or reuse pull request
-        id: pr
-        if: success() && inputs.open_pr && inputs.work_branch != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WORK_BRANCH: ${{ inputs.work_branch }}
-          PR_BASE: ${{ inputs.pr_base }}
-          BASE_REF: ${{ inputs.base_ref }}
-          PR_TITLE: ${{ inputs.pr_title }}
-          PR_BODY: ${{ inputs.pr_body }}
-        run: |
-          base="${PR_BASE:-${BASE_REF:-main}}"
-          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
-                 --json number --jq '.[0].number' 2>/dev/null || true)
-          if [ -z "$pr" ]; then
-            gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$WORK_BRANCH" \
-              --title "${PR_TITLE:-$WORK_BRANCH}" --body "${PR_BODY:-Opened by auto-maintain.}"
-            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
-                   --json number --jq '.[0].number')
-          fi
-          echo "pr_number=${pr}" >> "$GITHUB_OUTPUT"
-          echo "PR for ${WORK_BRANCH}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,36 +1,36 @@
 <!--
-  Prompt for the auto-maintain workflow (issue → code).
+  Prompt for the auto-maintain workflow (issue → code → PR).
   Edit this file to change how the agent implements issues — no YAML needed.
 
-  Runtime variables (exported into the shell by the workflow):
-    $ISSUE_NUMBER  the GitHub issue to implement
-  The workflow already created your branch from the latest main and will
-  format, commit, push and open the PR for you.
+  Runtime variable (substituted before the run):
+    $ISSUE_NUMBER   the GitHub issue to implement
+  Your branch (auto/issue-$ISSUE_NUMBER) is already created from the latest main.
 -->
-Implement GitHub issue #$ISSUE_NUMBER in this Rust crate.
+Implement GitHub issue #$ISSUE_NUMBER in this Rust crate, then open a pull request.
 
-IMPORTANT: your branch already exists (created from the latest `main`), and the
-workflow will format, commit, push and open the pull request for you. So do NOT
-create branches, run git, commit, push, or open a PR. Only edit files in the
-working tree and leave your changes uncommitted.
+You are on branch `auto/issue-$ISSUE_NUMBER`, already based on the latest `main`.
 
-Steps:
+Do this:
 1. Read the issue: `gh issue view "$ISSUE_NUMBER"`.
 2. Read `CLAUDE.md` and the relevant `docs/` sections for conventions. Honour the
    functional-core rules (immutability, pure planner/tools, no panics, no network
    in the core).
-3. Work test-first (TDD): write the failing test(s) in `tests/` that encode the
-   acceptance criteria, run `cargo test` and SEE THEM FAIL, then implement the
-   minimum under `src/` until green.
-4. Validate your work — REQUIRED, not optional. Run each of these and make them
-   ALL pass, iterating (fix → re-run) until green. Do not consider the task done
-   while any of them fails:
-     - `cargo build --all-targets`
-     - `cargo clippy --all-targets -- -D warnings`
-     - `cargo test --all-targets`
-   These checks are how you confirm your change is correct. (Formatting is applied
-   by the workflow, so you don't need to run `cargo fmt`.)
-5. If you implemented a documented capability, flip its entry in
-   `docs/02-agent-harness.md` from 🚧 Planned to ✅ Implemented.
+3. Implement test-first: add the test(s) in `tests/` that encode the acceptance
+   criteria, then the code under `src/`. If you implemented a documented
+   capability, flip its entry in `docs/02-agent-harness.md` from 🚧 Planned to
+   ✅ Implemented.
+4. Format your changes: `cargo fmt --all`.
+5. Commit, push, and OPEN A PULL REQUEST. This is required and must ALWAYS happen
+   so your work is published even if the implementation is imperfect:
+   ```
+   git add -A
+   git commit -m "auto-maintain: implement #$ISSUE_NUMBER"
+   git push -u origin "auto/issue-$ISSUE_NUMBER"
+   gh pr create --base main --head "auto/issue-$ISSUE_NUMBER" \
+     --title "<the issue title>" --body "Closes #$ISSUE_NUMBER"
+   ```
+   If a PR for this branch already exists, reuse it (skip `gh pr create`).
 
-Leave ALL changes uncommitted in the working tree.
+You do NOT need to run the build / clippy / test suite — CI (`ci.yml`) runs those
+on the pull request. Focus on a correct implementation and ALWAYS leave an open
+PR behind.

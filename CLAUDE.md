@@ -52,12 +52,13 @@ CI enforces steps 2–5 on every PR; a PR that fails CI will not be merged.
 ## Git / PR conventions
 
 - One issue per PR. Keep diffs small and reviewable.
-- **In the automated (auto-maintain) path, the workflow — not the agent — owns
-  git.** It branches `auto/issue-<n>` from the latest `main`, runs the formatter,
-  commits, pushes and opens the PR. The agent must therefore **only edit files
-  and leave the working tree uncommitted** — do not create branches, run git,
-  commit, push, or open PRs.
-- Human contributors: branch `auto/issue-<n>`, PR body starts with `Closes #<n>`.
+- Branch `auto/issue-<n>` (in auto-maintain the workflow pre-creates it from the
+  latest `main`). PR body starts with `Closes #<n>`.
+- **In the automated path the agent commits, pushes and opens the PR itself** —
+  its app token can create PRs and trigger CI, which the Actions token cannot.
+  Always leave an open PR behind so the session's work is published. Correctness
+  is validated by `ci.yml` **on the PR** (fmt · build · clippy · test) — you do
+  not need to run the full suite in-session.
 - Never merge. Never force-push to `main`. Never edit workflow files or secrets
   unless the issue is explicitly about the automation.
 

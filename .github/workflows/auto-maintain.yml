@@ -41,39 +41,57 @@ jobs:
       pull-requests: write # open the PR
       id-token: write # claude-code-action OAuth (OIDC)
     with:
+      # Runner bases the branch on the latest main (deterministic start); Claude
+      # then implements, commits, pushes and OPENS THE PR in-session — its app
+      # token can create PRs and trigger ci.yml (the Actions token cannot). The
+      # PR is always published, so the paid session is never wasted.
       base_ref: main
       work_branch: auto/issue-${{ github.event.issue.number || inputs.issue_number }}
-      format_cmd: cargo fmt --all
-      commit_message: "auto-maintain: implement #${{ github.event.issue.number || inputs.issue_number }}"
-      # The runner opens the PR itself (no separate job). CI runs on that PR.
-      open_pr: true
-      pr_base: main
-      pr_title: "auto-maintain: implement #${{ github.event.issue.number || inputs.issue_number }}"
-      pr_body: |
-        Closes #${{ github.event.issue.number || inputs.issue_number }}
-
-        Implemented by auto-maintain: branched from main, built test-first, formatted deterministically. Review before merge.
-      # The prompt lives in an editable text file — see .github/prompts/. The
-      # only dynamic value (issue number) is injected via session_env.
+      # Prompt lives in an editable file; issue number injected via session_env.
       prompt_file: .github/prompts/implement-issue.md
       session_env: |
         ISSUE_NUMBER=${{ github.event.issue.number || inputs.issue_number }}
       claude_args: |
         --max-turns 40
         --model claude-sonnet-4-6
-        --allowedTools Read,Glob,Grep,Edit,Write,Bash(cargo:*),Bash(gh:*)
+        --allowedTools Read,Glob,Grep,Edit,Write,Bash(cargo:*),Bash(gh:*),Bash(git:*)
     secrets: inherit
 
-  # Report the Claude session cost as a comment on the PR opened by the runner.
+  # Find the PR that Claude opened for this issue's branch (for the cost comment).
+  resolve-pr:
+    name: Resolve PR number
+    needs: implement
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.find.outputs.pr }}
+    steps:
+      - name: Find PR for branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          branch="auto/issue-${ISSUE}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" \
+                 --state all --json number --jq '.[0].number' 2>/dev/null || true)
+          echo "pr=${pr}" >> "$GITHUB_OUTPUT"
+          echo "PR for ${branch}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Report the Claude session cost as a comment on that PR (GITHUB_TOKEN may
+  # comment on PRs even though it may not create them).
   comment-cost:
     name: Comment session cost
-    needs: implement
-    if: success() && needs.implement.outputs.pr_number != ''
+    needs: [implement, resolve-pr]
+    if: success() && needs.resolve-pr.outputs.pr != ''
     permissions:
       pull-requests: write
     uses: ./.github/workflows/reusable-pr-comment.yml
     with:
-      pr_number: ${{ needs.implement.outputs.pr_number }}
+      pr_number: ${{ needs.resolve-pr.outputs.pr }}
       body: |
         ### 🤖 Auto-maintain — session cost
 
