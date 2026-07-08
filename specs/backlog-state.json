@@ -1,0 +1,27 @@
+{
+  "docs/00-vision.md": {
+    "sha256": "dc97d754a3b81365d61e30eddad8ce6cd20020d5c2c04525d3ce0a5d82f89c10",
+    "processed_at": "2026-07-08T12:10:12Z",
+    "trigger": "workflow_dispatch"
+  },
+  "docs/01-architecture.md": {
+    "sha256": "7c0401bae99b0897c9b333db84dd0b9d9823d9dcc912a13d9e7fdc911a821411",
+    "processed_at": "2026-07-08T12:10:12Z",
+    "trigger": "workflow_dispatch"
+  },
+  "docs/02-agent-harness.md": {
+    "sha256": "70a91bdd771096511cc36cce518dd197896bd62e7c3ef514f16626f27752abb7",
+    "processed_at": "2026-07-08T12:10:12Z",
+    "trigger": "workflow_dispatch"
+  },
+  "docs/03-roadmap.md": {
+    "sha256": "04aa300efc31418ad0ce76ce16e3e856452ae470a25bb6ddd9e385dab0bb8b5c",
+    "processed_at": "2026-07-08T12:10:12Z",
+    "trigger": "workflow_dispatch"
+  },
+  "docs/README.md": {
+    "sha256": "1b218aa7da4cfe92e141a070da6341742432f9099d4e80cf09cca077165e985e",
+    "processed_at": "2026-07-08T12:10:12Z",
+    "trigger": "workflow_dispatch"
+  }
+}
