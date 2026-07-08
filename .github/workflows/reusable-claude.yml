@@ -55,6 +55,26 @@ on:
         required: false
         type: string
         default: "auto-maintain: implement change"
+      open_pr:
+        description: "If true (and work_branch is set), open or reuse a PR for the pushed branch — deterministically, in the runner (no AI cost). CI runs on that PR, not here."
+        required: false
+        type: boolean
+        default: false
+      pr_base:
+        description: "Base branch for the PR (defaults to base_ref, then main)."
+        required: false
+        type: string
+        default: ""
+      pr_title:
+        description: "Title for the opened PR."
+        required: false
+        type: string
+        default: ""
+      pr_body:
+        description: "Body for the opened PR."
+        required: false
+        type: string
+        default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -65,6 +85,9 @@ on:
       num_turns:
         description: "Number of turns the Claude session took."
         value: ${{ jobs.claude.outputs.num_turns }}
+      pr_number:
+        description: "Number of the PR opened (or reused) for work_branch, when open_pr is set."
+        value: ${{ jobs.claude.outputs.pr_number }}
 
 jobs:
   claude:
@@ -79,6 +102,7 @@ jobs:
     outputs:
       cost_usd: ${{ steps.cost.outputs.cost_usd }}
       num_turns: ${{ steps.cost.outputs.num_turns }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -172,6 +196,9 @@ jobs:
           WORK_BRANCH: ${{ inputs.work_branch }}
           FORMAT_CMD: ${{ inputs.format_cmd }}
           COMMIT_MESSAGE: ${{ inputs.commit_message }}
+          # claude-code-action clears the checkout's persisted git credential, so
+          # push with an explicit tokenized URL (this token has contents: write).
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "$FORMAT_CMD" ]; then
             echo "Running formatter: $FORMAT_CMD"
@@ -182,5 +209,33 @@ jobs:
             echo "::warning::Claude produced no changes — nothing to commit."
           else
             git commit -m "$COMMIT_MESSAGE"
-            git push --force origin "$WORK_BRANCH"
+            git push --force \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "HEAD:refs/heads/${WORK_BRANCH}"
           fi
+
+      # Deterministically open (or reuse) the PR for the pushed branch — via gh,
+      # no AI cost. This runner never runs the crate's CI; that's ci.yml's job on
+      # the resulting PR (pull_request event).
+      - name: Open or reuse pull request
+        id: pr
+        if: success() && inputs.open_pr && inputs.work_branch != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORK_BRANCH: ${{ inputs.work_branch }}
+          PR_BASE: ${{ inputs.pr_base }}
+          BASE_REF: ${{ inputs.base_ref }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_BODY: ${{ inputs.pr_body }}
+        run: |
+          base="${PR_BASE:-${BASE_REF:-main}}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
+                 --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$WORK_BRANCH" \
+              --title "${PR_TITLE:-$WORK_BRANCH}" --body "${PR_BODY:-Opened by auto-maintain.}"
+            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
+                   --json number --jq '.[0].number')
+          fi
+          echo "pr_number=${pr}" >> "$GITHUB_OUTPUT"
+          echo "PR for ${WORK_BRANCH}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"

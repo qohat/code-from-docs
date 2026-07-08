@@ -38,12 +38,21 @@ jobs:
     permissions:
       contents: write # push the work branch
       issues: read # read the issue
+      pull-requests: write # open the PR
       id-token: write # claude-code-action OAuth (OIDC)
     with:
       base_ref: main
       work_branch: auto/issue-${{ github.event.issue.number || inputs.issue_number }}
       format_cmd: cargo fmt --all
       commit_message: "auto-maintain: implement #${{ github.event.issue.number || inputs.issue_number }}"
+      # The runner opens the PR itself (no separate job). CI runs on that PR.
+      open_pr: true
+      pr_base: main
+      pr_title: "auto-maintain: implement #${{ github.event.issue.number || inputs.issue_number }}"
+      pr_body: |
+        Closes #${{ github.event.issue.number || inputs.issue_number }}
+
+        Implemented by auto-maintain: branched from main, built test-first, formatted deterministically. Review before merge.
       # The prompt lives in an editable text file — see .github/prompts/. The
       # only dynamic value (issue number) is injected via session_env.
       prompt_file: .github/prompts/implement-issue.md
@@ -55,51 +64,16 @@ jobs:
         --allowedTools Read,Glob,Grep,Edit,Write,Bash(cargo:*),Bash(gh:*)
     secrets: inherit
 
-  # Deterministically open (or reuse) the PR for the pushed branch — via gh, no AI.
-  open-pr:
-    name: Open pull request
-    needs: implement
-    if: success()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: read
-      pull-requests: write
-    outputs:
-      pr: ${{ steps.pr.outputs.pr }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create or reuse PR
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          N: ${{ github.event.issue.number || inputs.issue_number }}
-        run: |
-          branch="auto/issue-${N}"
-          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open \
-                 --json number --jq '.[0].number' 2>/dev/null || true)
-          if [ -z "$pr" ]; then
-            title=$(gh issue view "$N" --repo "$GITHUB_REPOSITORY" --json title --jq .title)
-            body=$(printf 'Closes #%s\n\nImplemented by auto-maintain: branched from main, built test-first, formatted deterministically. Review before merge.' "$N")
-            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
-              --title "$title" --body "$body"
-            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --state open \
-                   --json number --jq '.[0].number')
-          fi
-          echo "pr=${pr}" >> "$GITHUB_OUTPUT"
-          echo "PR for ${branch}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"
-
-  # Report the Claude session cost as a comment on that PR (reusable block).
+  # Report the Claude session cost as a comment on the PR opened by the runner.
   comment-cost:
     name: Comment session cost
-    needs: [implement, open-pr]
-    if: success() && needs.open-pr.outputs.pr != ''
+    needs: implement
+    if: success() && needs.implement.outputs.pr_number != ''
     permissions:
       pull-requests: write
     uses: ./.github/workflows/reusable-pr-comment.yml
     with:
-      pr_number: ${{ needs.open-pr.outputs.pr }}
+      pr_number: ${{ needs.implement.outputs.pr_number }}
       body: |
         ### 🤖 Auto-maintain — session cost
 

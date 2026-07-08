@@ -22,9 +22,14 @@ Steps:
 3. Work test-first (TDD): write the failing test(s) in `tests/` that encode the
    acceptance criteria, run `cargo test` and SEE THEM FAIL, then implement the
    minimum under `src/` until green.
-4. Self-check: `cargo build --all-targets`,
-   `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`.
-   (Formatting is applied by the workflow — no need to run `cargo fmt`.)
+4. Validate your work — REQUIRED, not optional. Run each of these and make them
+   ALL pass, iterating (fix → re-run) until green. Do not consider the task done
+   while any of them fails:
+     - `cargo build --all-targets`
+     - `cargo clippy --all-targets -- -D warnings`
+     - `cargo test --all-targets`
+   These checks are how you confirm your change is correct. (Formatting is applied
+   by the workflow, so you don't need to run `cargo fmt`.)
 5. If you implemented a documented capability, flip its entry in
    `docs/02-agent-harness.md` from 🚧 Planned to ✅ Implemented.
 
