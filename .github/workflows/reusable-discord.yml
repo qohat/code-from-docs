@@ -21,7 +21,9 @@ on:
         type: string
     secrets:
       DISCORD_WEBHOOK_URL:
-        required: true
+        # Optional: if the secret is absent the notify step logs a warning and
+        # skips, so a missing webhook never fails the pipeline at startup.
+        required: false
 
 jobs:
   notify:

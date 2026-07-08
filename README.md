@@ -34,6 +34,7 @@ edit docs/ ──▶ generate-backlog ──▶ GitHub issues ──▶ auto-mai
 └── .github/workflows/
     ├── generate-backlog.yml  # caller: docs  → issues
     ├── auto-maintain.yml     # caller: issue → PR
+    ├── ci.yml                # quality gate: fmt · clippy · test on every PR
     ├── reusable-claude.yml   # reusable: runs claude-code-action headlessly
     └── reusable-discord.yml  # reusable: Discord notifications
 ```
@@ -47,6 +48,7 @@ workflows that only orchestrate:
 |----------|---------|------|
 | `generate-backlog.yml` | manual, or push to `docs/**` | reads docs + `src/`, files one issue per Planned capability (no duplicates) |
 | `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>` and opens a PR |
+| `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
 | `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless) |
 | `reusable-discord.yml` | `workflow_call` | posts a success/failure embed to a Discord webhook |
 
