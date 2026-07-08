@@ -1,0 +1,16 @@
+[package]
+name = "code-from-docs"
+version = "0.1.0"
+edition = "2021"
+description = "A tiny functional-core agent harness — the demo app the doc-driven automation builds against."
+license = "MIT"
+
+[[bin]]
+name = "harness-demo"
+path = "src/main.rs"
+
+[lib]
+name = "code_from_docs"
+path = "src/lib.rs"
+
+[dependencies]

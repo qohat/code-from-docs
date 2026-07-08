@@ -1,0 +1,66 @@
+name: Reusable · Discord Notify
+
+# Reusable building block: posts an embed to a Discord webhook. The webhook URL
+# is a secret and is only ever read into an env var — it never appears in logs
+# or in the workflow files. Callers invoke this with `secrets: inherit`.
+
+on:
+  workflow_call:
+    inputs:
+      status:
+        description: "success | failure | info (drives the embed colour)."
+        required: true
+        type: string
+      title:
+        description: "Embed title."
+        required: true
+        type: string
+      message:
+        description: "Embed description."
+        required: true
+        type: string
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: true
+
+jobs:
+  notify:
+    name: Notify Discord
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Discord embed
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          STATUS: ${{ inputs.status }}
+          TITLE: ${{ inputs.title }}
+          MESSAGE: ${{ inputs.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "${WEBHOOK}" ]; then
+            echo "::warning::DISCORD_WEBHOOK_URL is empty — skipping notification"
+            exit 0
+          fi
+          case "${STATUS}" in
+            success) COLOR=3066993 ;;   # green
+            failure) COLOR=15158332 ;;  # red
+            *)       COLOR=3447003 ;;   # blue
+          esac
+          payload=$(jq -n \
+            --arg title "${TITLE}" \
+            --arg desc "${MESSAGE}" \
+            --arg url "${RUN_URL}" \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --argjson color "${COLOR}" \
+            '{
+               embeds: [{
+                 title: $title,
+                 description: $desc,
+                 color: $color,
+                 fields: [
+                   { name: "Repository", value: $repo, inline: true },
+                   { name: "Run",        value: $url }
+                 ]
+               }]
+             }')
+          curl -sSf -H "Content-Type: application/json" -d "${payload}" "${WEBHOOK}"

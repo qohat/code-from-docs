@@ -1,0 +1,94 @@
+name: Generate Backlog from Docs
+
+# docs/ -> GitHub issues.
+# Reads the product docs (and the current src/), then files one issue per
+# not-yet-implemented capability. Orchestration only: the heavy lifting lives in
+# the reusable Claude runner; notifications live in the reusable Discord workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      docs_path:
+        description: "Docs folder to analyse."
+        required: false
+        type: string
+        default: "docs"
+      dry_run:
+        description: "Analyse only — print issues instead of creating them."
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+
+# Least privilege for this pipeline: read the code, write issues. No PR/write.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: generate-backlog
+  cancel-in-progress: false
+
+jobs:
+  backlog:
+    name: Docs → Issues
+    uses: ./.github/workflows/reusable-claude.yml
+    permissions:
+      contents: read
+      issues: write
+    with:
+      timeout_minutes: 15
+      claude_args: |
+        --max-turns 20
+        --model claude-sonnet-4-6
+        --allowedTools Read,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh label create:*)
+      prompt: |
+        You are the backlog generator for this repository. Turn the product docs
+        into a GitHub issue backlog that the auto-maintain workflow can implement.
+
+        Steps:
+        1. Read every file under `${{ inputs.docs_path || 'docs' }}/`. Treat it as
+           the single source of truth for what the app should do. Pay attention to
+           capabilities tagged "Planned" vs "Implemented".
+        2. Read the Rust source under `src/` to confirm what already exists.
+        3. Run `gh issue list --state open --limit 100` and read the titles so you
+           DO NOT create duplicates (match on the capability, not exact wording).
+        4. For each "Planned" capability with no matching open issue, create ONE
+           small, independently-implementable issue:
+             - Title: a concise imperative spec (e.g. "Add retry policy to tools").
+             - Body: the behaviour, an acceptance-criteria checklist copied/adapted
+               from the doc, and a reference to the doc section (e.g. "docs/02 · C6").
+             - Labels: `spec` and `auto-maintain`.
+           Create labels first if missing:
+           `gh label create spec --color 0e8a16 --force` and
+           `gh label create auto-maintain --color 1d76db --force`.
+        5. If dry_run is "${{ inputs.dry_run }}" and that is true, DO NOT create
+           anything — print the issues you would create and stop.
+
+        Do not touch code. Keep issues small.
+    secrets: inherit
+
+  notify-success:
+    name: Notify (success)
+    needs: backlog
+    if: success()
+    uses: ./.github/workflows/reusable-discord.yml
+    with:
+      status: success
+      title: "🗂️ Backlog generated from docs"
+      message: "Docs were analysed and the issue backlog is up to date."
+    secrets: inherit
+
+  notify-failure:
+    name: Notify (failure)
+    needs: backlog
+    if: failure()
+    uses: ./.github/workflows/reusable-discord.yml
+    with:
+      status: failure
+      title: "❌ Backlog generation failed"
+      message: "generate-backlog failed. Check the workflow run logs."
+    secrets: inherit

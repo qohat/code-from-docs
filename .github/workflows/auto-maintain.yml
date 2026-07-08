@@ -1,0 +1,88 @@
+name: Auto-Maintain (Issue → PR)
+
+# GitHub issue -> pull request.
+# Triggered when an issue is labelled `auto-maintain` (or dispatched manually).
+# Claude implements the issue on a branch and opens a PR. Nothing merges here.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to implement."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+# One implementation run per issue at a time.
+concurrency:
+  group: auto-maintain-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    name: Implement issue
+    # Manual dispatch, or the moment the `auto-maintain` label is added.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'auto-maintain'
+    uses: ./.github/workflows/reusable-claude.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      timeout_minutes: 30
+      claude_args: |
+        --max-turns 40
+        --model claude-sonnet-4-6
+        --allowedTools Read,Glob,Grep,Edit,Write,Bash(git:*),Bash(gh:*),Bash(cargo:*)
+      prompt: |
+        Implement a GitHub issue and open a pull request for human review.
+
+        Issue: #${{ github.event.issue.number || inputs.issue_number }}
+
+        Steps:
+        1. Read the issue: `gh issue view ${{ github.event.issue.number || inputs.issue_number }}`.
+        2. Read `CLAUDE.md` and the relevant `docs/` sections for conventions and
+           acceptance criteria. Honour the functional-core rules (immutability,
+           pure planner/tools, no panics, no network in the core).
+        3. Create a branch: `auto/issue-${{ github.event.issue.number || inputs.issue_number }}`.
+        4. Implement the change under `src/`. Add or update tests in `tests/`.
+        5. Run `cargo test` and `cargo clippy --all-targets -- -D warnings` and fix
+           until both pass. If cargo is unavailable on the runner, install the Rust
+           toolchain or clearly note in the PR body that CI must validate.
+        6. Commit and push the branch.
+        7. Open a PR against `main` with:
+             - Title: the issue title.
+             - Body: "Closes #${{ github.event.issue.number || inputs.issue_number }}",
+               a short summary, and testing notes.
+        Do NOT merge. Leave the PR for a human to review.
+    secrets: inherit
+
+  notify-success:
+    name: Notify (success)
+    needs: implement
+    if: success()
+    uses: ./.github/workflows/reusable-discord.yml
+    with:
+      status: success
+      title: "🤖 Auto-maintain opened a PR"
+      message: "An issue was implemented on a branch and a PR is ready for review."
+    secrets: inherit
+
+  notify-failure:
+    name: Notify (failure)
+    needs: implement
+    if: failure()
+    uses: ./.github/workflows/reusable-discord.yml
+    with:
+      status: failure
+      title: "❌ Auto-maintain failed"
+      message: "Implementing an issue failed. Check the workflow run logs."
+    secrets: inherit
