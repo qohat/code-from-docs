@@ -46,6 +46,22 @@ fn step(
                 .with(Message::tool(observation));
             (next, None)
         }
+        Decision::UseTools(calls) => {
+            let label = calls
+                .iter()
+                .map(|c| format!("call {}({})", c.tool, c.input))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let with_label = conversation.with(Message::assistant(label));
+            let next = calls.iter().fold(with_label, |conv, call| {
+                let observation = match tools.invoke(&call.tool, &call.input) {
+                    Ok(out) => out,
+                    Err(err) => format!("error: {err}"),
+                };
+                conv.with(Message::tool(observation))
+            });
+            (next, None)
+        }
     }
 }
 

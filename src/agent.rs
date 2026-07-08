@@ -2,13 +2,24 @@
 
 use crate::message::Conversation;
 
+/// A single tool invocation, used inside [`Decision::UseTools`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Call {
+    pub tool: String,
+    pub input: String,
+}
+
 /// What the agent decides to do after observing the conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     /// Emit a final reply and stop the loop.
     Reply(String),
-    /// Invoke a tool with the given input, then continue looping.
+    /// Invoke a single tool with the given input, then continue looping.
     UseTool { tool: String, input: String },
+    /// Invoke several tools left-to-right, appending all observations before
+    /// the next planner turn.  A failing call becomes an error observation and
+    /// does not abort the batch.
+    UseTools(Vec<Call>),
 }
 
 /// A `Planner` maps the current conversation to the next [`Decision`].
