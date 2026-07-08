@@ -1,0 +1,34 @@
+name: Docs Watch (push → backlog)
+
+# Bridges the gap that `claude-code-action` does not accept `push` events:
+# when docs change on main, translate that push into a workflow_dispatch of
+# Generate Backlog from Docs (a supported event). generate-backlog's own memory
+# then decides which docs are actually new/changed. No recursion — the backlog
+# run only writes under specs/, which this watcher ignores.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+
+permissions:
+  actions: write # to dispatch the backlog workflow
+
+concurrency:
+  group: docs-watch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch backlog generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger Generate Backlog from Docs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run generate-backlog.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}"

@@ -26,10 +26,9 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    branches: [main]
-    paths:
-      - "docs/**"
+  # Auto-triggered on doc changes via docs-watch.yml, which re-dispatches this
+  # workflow. (claude-code-action rejects `push` events, so we translate a docs
+  # push into a workflow_dispatch instead of triggering on `push` directly.)
 
 # Union of what the jobs below need; each job narrows it further.
 # id-token: write is required by claude-code-action's OAuth (OIDC) flow.

@@ -33,7 +33,8 @@ edit docs/ ──▶ generate-backlog ──▶ GitHub issues ──▶ auto-mai
 ├── CLAUDE.md                 # conventions the coding agent must follow
 ├── .env.example              # required secret NAMES (no values)
 └── .github/workflows/
-    ├── generate-backlog.yml  # caller: docs  → issues
+    ├── generate-backlog.yml  # caller: docs  → issues (detect · backlog · persist)
+    ├── docs-watch.yml        # on push to docs/**, dispatches generate-backlog
     ├── auto-maintain.yml     # caller: issue → PR
     ├── ci.yml                # quality gate: fmt · clippy · test on every PR
     ├── reusable-claude.yml   # reusable: runs claude-code-action headlessly
@@ -119,7 +120,8 @@ flowchart LR
 
 | Workflow | Trigger | Does |
 |----------|---------|------|
-| `generate-backlog.yml` | manual, or push to `docs/**` | hashes docs vs `specs/backlog-state.json` (memory), files one issue per **new/changed** Planned capability, commits updated state |
+| `generate-backlog.yml` | manual, or dispatched by `docs-watch` | hashes docs vs `specs/backlog-state.json` (memory), files one issue per **new/changed** Planned capability, commits updated state |
+| `docs-watch.yml` | push to `docs/**` | translates the push into a `workflow_dispatch` of `generate-backlog` (the Claude action rejects raw `push` events) |
 | `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>` and opens a PR |
 | `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
 | `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless) |
