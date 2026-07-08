@@ -24,9 +24,11 @@ on:
       - "docs/**"
 
 # Least privilege for this pipeline: read the code, write issues. No PR/write.
+# `id-token: write` is required by claude-code-action's OAuth (OIDC) flow.
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 concurrency:
   group: generate-backlog
@@ -39,6 +41,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      id-token: write
     with:
       claude_args: |
         --max-turns 20
