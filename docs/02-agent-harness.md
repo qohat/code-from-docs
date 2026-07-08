@@ -74,3 +74,5 @@ useful for inspection and budgeting.
 allocate a new conversation; unit-tested; no I/O.
 
 <!-- backlog: revision marker -->
+
+<!-- backlog: revision 2 -->
