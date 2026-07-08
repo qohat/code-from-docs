@@ -33,7 +33,10 @@ fn planner(conversation: &Conversation) -> Decision {
                 .find(|m| m.role == Role::User)
                 .map(|m| m.content.clone())
                 .unwrap_or_default();
-            Decision::UseTool { tool: "reverse".into(), input: task }
+            Decision::UseTool {
+                tool: "reverse".into(),
+                input: task,
+            }
         }
     }
 }

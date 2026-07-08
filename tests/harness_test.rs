@@ -13,7 +13,10 @@ fn reverse(input: &str) -> Result<String, ToolError> {
 fn tool_then_reply(conversation: &Conversation) -> Decision {
     match conversation.last() {
         Some(m) if m.role == Role::Tool => Decision::Reply(m.content.clone()),
-        _ => Decision::UseTool { tool: "reverse".into(), input: "abc".into() },
+        _ => Decision::UseTool {
+            tool: "reverse".into(),
+            input: "abc".into(),
+        },
     }
 }
 
@@ -22,7 +25,10 @@ fn always_reply(_conversation: &Conversation) -> Decision {
 }
 
 fn never_reply(_conversation: &Conversation) -> Decision {
-    Decision::UseTool { tool: "missing".into(), input: "x".into() }
+    Decision::UseTool {
+        tool: "missing".into(),
+        input: "x".into(),
+    }
 }
 
 #[test]
@@ -64,5 +70,8 @@ fn conversation_is_immutable() {
 #[test]
 fn missing_tool_yields_not_found() {
     let tools = Toolbox::new();
-    assert!(matches!(tools.invoke("nope", "x"), Err(ToolError::NotFound(_))));
+    assert!(matches!(
+        tools.invoke("nope", "x"),
+        Err(ToolError::NotFound(_))
+    ));
 }

@@ -53,12 +53,7 @@ fn step(
 ///
 /// Seeds the conversation with the system prompt and the user's task, then
 /// folds [`step`] until the agent replies.
-pub fn run(
-    agent: &Agent,
-    tools: &Toolbox,
-    task: impl Into<String>,
-    max_steps: usize,
-) -> Run {
+pub fn run(agent: &Agent, tools: &Toolbox, task: impl Into<String>, max_steps: usize) -> Run {
     let mut conversation = Conversation::new()
         .with(Message::system(agent.system_prompt.clone()))
         .with(Message::user(task));
@@ -67,9 +62,17 @@ pub fn run(
         let (next, reply) = step(agent, tools, conversation);
         conversation = next;
         if let Some(answer) = reply {
-            return Run { conversation, outcome: Outcome::Replied(answer), steps };
+            return Run {
+                conversation,
+                outcome: Outcome::Replied(answer),
+                steps,
+            };
         }
     }
 
-    Run { conversation, outcome: Outcome::Exhausted, steps: max_steps }
+    Run {
+        conversation,
+        outcome: Outcome::Exhausted,
+        steps: max_steps,
+    }
 }

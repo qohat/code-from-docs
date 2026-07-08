@@ -38,7 +38,11 @@ impl Tool {
         description: impl Into<String>,
         run: fn(&str) -> Result<String, ToolError>,
     ) -> Self {
-        Self { name: name.into(), description: description.into(), run }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            run,
+        }
     }
 
     pub fn invoke(&self, input: &str) -> Result<String, ToolError> {
@@ -54,7 +58,9 @@ pub struct Toolbox {
 
 impl Toolbox {
     pub fn new() -> Self {
-        Self { tools: BTreeMap::new() }
+        Self {
+            tools: BTreeMap::new(),
+        }
     }
 
     /// Returns a new toolbox with `tool` added (replacing any of the same name).

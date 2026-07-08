@@ -18,7 +18,10 @@ pub struct Message {
 
 impl Message {
     pub fn new(role: Role, content: impl Into<String>) -> Self {
-        Self { role, content: content.into() }
+        Self {
+            role,
+            content: content.into(),
+        }
     }
 
     pub fn system(content: impl Into<String>) -> Self {
@@ -49,7 +52,9 @@ pub struct Conversation {
 
 impl Conversation {
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: Vec::new(),
+        }
     }
 
     /// Returns a new conversation with `message` appended.
@@ -79,6 +84,8 @@ impl Conversation {
 
 impl FromIterator<Message> for Conversation {
     fn from_iter<I: IntoIterator<Item = Message>>(iter: I) -> Self {
-        Self { messages: iter.into_iter().collect() }
+        Self {
+            messages: iter.into_iter().collect(),
+        }
     }
 }
