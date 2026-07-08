@@ -148,6 +148,12 @@ only; auto-maintain = `contents`/`issues`/`pull-requests: write`).
 
 Nothing merges automatically — humans hold the merge button.
 
+## Using this in your own repo
+
+This repo is a portable template. To wire the same pipeline into another project
+(any language), follow **[ADOPTING.md](ADOPTING.md)** — it lists which files to
+copy, what to change per repo, and the non-obvious gotchas already solved.
+
 ## Run the demo locally
 
 ```bash
