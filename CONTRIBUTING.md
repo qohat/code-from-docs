@@ -81,7 +81,7 @@ Add the **`auto-maintain`** label to the issue (generated issues already have
 it). That triggers **Auto-Maintain (Issue → PR)**, which:
 - reads the issue + `CLAUDE.md`,
 - implements it on branch `auto/issue-<n>`,
-- runs `cargo test` / `clippy`,
+- works test-first (TDD) and runs `cargo fmt` / `build` / `clippy` / `test`,
 - opens a PR (`Closes #<n>`).
 
 You can also trigger it manually:
@@ -90,13 +90,14 @@ You can also trigger it manually:
 gh workflow run "Auto-Maintain (Issue → PR)" -f issue_number=<n>
 ```
 
-### b) Do it yourself
+### b) Do it yourself (test-first)
 ```bash
 git checkout -b auto/issue-<n>
-# ...implement...
+# TDD: write the failing test(s) first, then implement.
 cargo fmt --all
+cargo build --all-targets
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test --all-targets
 git commit -am "Implement #<n>: <title>"
 gh pr create --fill
 ```
@@ -118,23 +119,25 @@ All code — human or agent — must follow [`CLAUDE.md`](CLAUDE.md). In short:
 A PR is ready to merge when:
 
 1. Behaviour matches the doc's acceptance criteria.
-2. `cargo fmt --all -- --check` passes.
-3. `cargo clippy --all-targets -- -D warnings` passes.
-4. `cargo test` passes.
-5. New behaviour has tests.
-6. The capability in `docs/02-agent-harness.md` is flipped from
+2. It was built **test-first (TDD)** — tests written before implementation.
+3. `cargo fmt --all -- --check` passes.
+4. `cargo build --all-targets` passes.
+5. `cargo clippy --all-targets -- -D warnings` passes.
+6. `cargo test --all-targets` passes.
+7. The capability in `docs/02-agent-harness.md` is flipped from
    🚧 **Planned** to ✅ **Implemented** **in the same PR** — otherwise
    `generate-backlog` will keep re-filing it.
 
-CI (`ci.yml`) enforces 2–4 on every PR.
+CI (`ci.yml`) enforces 3–6 on every PR.
 
 ## Local development
 
 ```bash
 cargo run            # run the demo agent, print a transcript
-cargo test           # behavioural tests
+cargo fmt --all      # format
+cargo build --all-targets
 cargo clippy --all-targets -- -D warnings
-cargo fmt --all      # auto-format before pushing
+cargo test --all-targets   # write tests first (TDD)
 ```
 
 ## Reporting bugs / ideas without code

@@ -25,11 +25,13 @@ be turned into backlog issues.
 
 ```
 .github/workflows/
-  reusable-claude.yml      # runs claude-code-action headlessly  (copy as-is)
+  reusable-claude.yml      # runs claude-code-action, outputs cost (copy as-is)
+  reusable-notify.yml      # success/failure notification wrapper (copy as-is)
   reusable-discord.yml     # Discord notifications                (copy as-is)
+  reusable-pr-comment.yml  # posts a comment on a PR              (copy as-is)
   generate-backlog.yml     # docs → issues, with memory           (copy as-is)
   docs-watch.yml           # push docs/** → dispatch backlog       (copy as-is)
-  auto-maintain.yml        # issue → PR                            (adapt build tool)
+  auto-maintain.yml        # issue → PR + cost comment             (adapt build tool)
   ci.yml                   # quality gate                          (rewrite for your language)
 CLAUDE.md                  # coding conventions                    (rewrite for your project)
 docs/                      # your product spec                     (replace contents)
@@ -39,8 +41,8 @@ specs/                     # backlog-state.json is auto-created    (start empty)
 
 ## 3. What to change per repo
 
-1. **`ci.yml`** — replace the Rust steps (`cargo fmt/clippy/test`) with your
-   stack's build + lint + test.
+1. **`ci.yml`** — replace the Rust steps (`cargo fmt` / `build` / `clippy` /
+   `test`) with your stack's format + build + lint + test.
 2. **Build-tool allowlist** in `auto-maintain.yml` → `claude_args` →
    `--allowedTools`: swap `Bash(cargo:*)` for `Bash(npm:*)`, `Bash(go:*)`, etc.
    Leave `Bash(gh:*)`, `Bash(git:*)`, `Read`, `Edit`, `Write` in place.
@@ -62,6 +64,7 @@ docs/ push ─▶ docs-watch ─▶ (workflow_dispatch) ─▶ generate-backlog
                                                      ├─ backlog (Claude files issues for changed docs)
                                                      └─ persist (commits updated state)
 issue labelled auto-maintain ─▶ auto-maintain ─▶ branch auto/issue-N + PR ─▶ ci ─▶ human merge
+                                       └─ resolve PR ─▶ comment session cost (reusable-pr-comment)
 ```
 
 - **Memory:** `specs/backlog-state.json` holds a `sha256` per doc. Only new/
@@ -69,6 +72,10 @@ issue labelled auto-maintain ─▶ auto-maintain ─▶ branch auto/issue-N + P
   reprocess.
 - **Reusable + callers:** callers pass credentials with `secrets: inherit`, so
   no secret is ever written into a workflow file.
+- **Cost reporting:** `reusable-claude.yml` reads the Claude execution log and
+  exposes `cost_usd` + `num_turns` as outputs; `auto-maintain` resolves the PR
+  for `auto/issue-N` and calls `reusable-pr-comment.yml` to post the session
+  cost as a PR comment. Reuse the same block to report cost anywhere else.
 
 ## 5. Gotchas already solved (keep these!)
 

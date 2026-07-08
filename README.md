@@ -35,10 +35,12 @@ edit docs/ ──▶ generate-backlog ──▶ GitHub issues ──▶ auto-mai
 └── .github/workflows/
     ├── generate-backlog.yml  # caller: docs  → issues (detect · backlog · persist)
     ├── docs-watch.yml        # on push to docs/**, dispatches generate-backlog
-    ├── auto-maintain.yml     # caller: issue → PR
-    ├── ci.yml                # quality gate: fmt · clippy · test on every PR
-    ├── reusable-claude.yml   # reusable: runs claude-code-action headlessly
-    └── reusable-discord.yml  # reusable: Discord notifications
+    ├── auto-maintain.yml     # caller: issue → PR (+ comments session cost)
+    ├── ci.yml                # quality gate: fmt · build · clippy · test on every PR
+    ├── reusable-claude.yml   # reusable: runs claude-code-action headlessly (outputs cost)
+    ├── reusable-notify.yml   # reusable: success/failure notification (wraps discord)
+    ├── reusable-discord.yml  # reusable: Discord notifications
+    └── reusable-pr-comment.yml  # reusable: posts a comment on a PR
 ```
 
 ## Harness architecture
@@ -111,7 +113,7 @@ flowchart LR
     ISSUES -->|label auto-maintain| AM["auto-maintain.yml"]
     AM --> RC2["reusable-claude<br/>implements the issue"]
     RC2 -->|branch auto/issue-N + PR| PR["🔀 Pull request"]
-    PR --> CI["ci.yml<br/>fmt · clippy · test"]
+    PR --> CI["ci.yml<br/>fmt · build · clippy · test"]
     CI --> HUMAN["👤 human review & merge"]
     GB -. success/failure .-> DISCORD["reusable-discord"]
     AM -. success/failure .-> DISCORD
@@ -122,10 +124,12 @@ flowchart LR
 |----------|---------|------|
 | `generate-backlog.yml` | manual, or dispatched by `docs-watch` | hashes docs vs `specs/backlog-state.json` (memory), files one issue per **new/changed** Planned capability, commits updated state |
 | `docs-watch.yml` | push to `docs/**` | translates the push into a `workflow_dispatch` of `generate-backlog` (the Claude action rejects raw `push` events) |
-| `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>` and opens a PR |
-| `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
-| `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless) |
+| `auto-maintain.yml` | issue labelled `auto-maintain`, or manual | implements the issue on `auto/issue-<n>`, opens a PR, and comments the Claude **session cost** on it |
+| `ci.yml` | every PR + push to `main` | `cargo fmt --check`, `cargo build`, `clippy -D warnings`, `cargo test` — the gate for auto-generated PRs |
+| `reusable-claude.yml` | `workflow_call` | checkout + `anthropics/claude-code-action@v1` (headless); outputs `cost_usd` and `num_turns` for the session |
+| `reusable-notify.yml` | `workflow_call` | maps a `success`/`failure` outcome to a standardized title/message and calls `reusable-discord` (used once per workflow with `if: always()`) |
 | `reusable-discord.yml` | `workflow_call` | posts a success/failure embed to a Discord webhook |
+| `reusable-pr-comment.yml` | `workflow_call` | posts a Markdown comment on a PR (auto-maintain uses it to report cost) |
 
 Callers invoke the reusables with `uses:` and pass credentials with
 `secrets: inherit`, so **no secret is ever written into a workflow file**.
