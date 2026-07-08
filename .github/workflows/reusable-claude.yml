@@ -1,16 +1,30 @@
 name: Reusable · Claude Code Runner
 
-# Reusable building block: checks out the repo and runs Claude Code headlessly
-# with a caller-supplied prompt. Auth is via an OAuth token passed as a secret,
-# never hard-coded. Callers invoke this with `uses:` + `secrets: inherit`.
+# Reusable building block: checks out the repo and runs Claude Code headlessly.
+# The prompt can be inline (`prompt`) or, preferably, read from an editable file
+# (`prompt_file`) with `$VAR` placeholders substituted from `session_env`.
+# Optionally branches from `base_ref`, formats and pushes `work_branch` — all in
+# the runner (deterministic, no AI cost). Auth is an OAuth token passed as a
+# secret, never hard-coded. Invoke with `uses:` + `secrets: inherit`.
 
 on:
   workflow_call:
     inputs:
       prompt:
-        description: "Headless task prompt for Claude Code."
-        required: true
+        description: "Inline prompt. Prefer prompt_file for anything non-trivial."
+        required: false
         type: string
+        default: ""
+      prompt_file:
+        description: "Path to a file whose contents are used as the prompt (takes precedence over prompt). Keeps long prompts out of YAML."
+        required: false
+        type: string
+        default: ""
+      session_env:
+        description: "Extra KEY=VALUE lines (one per line) exported into the Claude session's environment, e.g. ISSUE_NUMBER=42. Referenced from the prompt file as $KEY."
+        required: false
+        type: string
+        default: ""
       claude_args:
         description: "Extra Claude Code CLI args (newline-separated)."
         required: false
@@ -89,12 +103,44 @@ jobs:
           git fetch origin "$base"
           git checkout -B "$WORK_BRANCH" "origin/$base"
 
+      # Load the prompt from a file (if given) and export any session env vars,
+      # so long prompts live in an editable text file instead of inline YAML.
+      - name: Resolve prompt and session env
+        id: prep
+        env:
+          PROMPT_FILE: ${{ inputs.prompt_file }}
+          SESSION_ENV: ${{ inputs.session_env }}
+        run: |
+          # Export caller vars for (a) the Claude step process (GITHUB_ENV) and
+          # (b) this shell, and collect their names so we only substitute those.
+          varlist=""
+          if [ -n "$SESSION_ENV" ]; then
+            printf '%s\n' "$SESSION_ENV" >> "$GITHUB_ENV"
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              key="${line%%=*}"
+              val="${line#*=}"
+              export "$key"="$val"
+              varlist="$varlist \${$key}"
+            done < <(printf '%s\n' "$SESSION_ENV")
+          fi
+          if [ -n "$PROMPT_FILE" ]; then
+            [ -f "$PROMPT_FILE" ] || { echo "::error::prompt_file not found: $PROMPT_FILE"; exit 1; }
+            # Substitute ONLY the session vars (leave any other $ untouched).
+            content=$(envsubst "$varlist" < "$PROMPT_FILE")
+            {
+              echo 'text<<CLAUDE_PROMPT_EOF'
+              printf '%s\n' "$content"
+              echo 'CLAUDE_PROMPT_EOF'
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: ${{ inputs.prompt }}
+          prompt: ${{ inputs.prompt_file != '' && steps.prep.outputs.text || inputs.prompt }}
           claude_args: ${{ inputs.claude_args }}
           # Allow bot-initiated runs: docs-watch dispatches generate-backlog as
           # the github-actions bot, which the action blocks unless listed here.

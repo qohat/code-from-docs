@@ -33,6 +33,9 @@ be turned into backlog issues.
   docs-watch.yml           # push docs/** → dispatch backlog       (copy as-is)
   auto-maintain.yml        # issue → PR + cost comment             (adapt build tool)
   ci.yml                   # quality gate                          (rewrite for your language)
+.github/prompts/
+  implement-issue.md       # auto-maintain's prompt                (edit freely)
+  generate-backlog.md      # generate-backlog's prompt             (edit freely)
 CLAUDE.md                  # coding conventions                    (rewrite for your project)
 docs/                      # your product spec                     (replace contents)
 specs/                     # backlog-state.json is auto-created    (start empty)
@@ -51,6 +54,10 @@ specs/                     # backlog-state.json is auto-created    (start empty)
 4. **`docs/`** — your specs. Keep the tagging convention: mark each capability
    🚧 **Planned** or ✅ **Implemented**; the generator only files issues for
    Planned ones and skips Implemented ones.
+4b. **`.github/prompts/*.md`** — how the agent behaves. These are plain text, so
+   editing them needs no YAML. `reusable-claude` reads a `prompt_file` and
+   substitutes any `session_env` vars (e.g. `$ISSUE_NUMBER`, `$CHANGED_DOCS`)
+   into the text before the run — keep those `$VAR` placeholders when editing.
 5. **Model** — `--model claude-sonnet-4-6` in the `claude_args` if you want a
    different tier.
 6. **Labels** — `spec` and `auto-maintain` are created automatically on first
