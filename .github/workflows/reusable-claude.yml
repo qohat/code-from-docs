@@ -3,10 +3,10 @@ name: Reusable · Claude Code Runner
 # Reusable building block: checks out the repo and runs Claude Code headlessly.
 # The prompt can be inline (`prompt`) or, preferably, read from an editable file
 # (`prompt_file`) with `$VAR` placeholders substituted from `session_env`.
-# When `work_branch` is set, the runner deterministically bases it on the latest
-# `base_ref` BEFORE the session (so Claude starts from main without spending
-# turns on it); Claude then commits/pushes/opens the PR itself. Auth is an OAuth
-# token passed as a secret. Invoke with `uses:` + `secrets: inherit`.
+# When `work_branch` is set, ALL git plumbing is deterministic (runner, no AI
+# cost): it bases the branch on the latest `base_ref` before the session, then
+# formats, commits, pushes and (with open_pr) opens the PR using GH_PAT so CI
+# fires. Claude only edits + validates. Invoke with `uses:` + `secrets: inherit`.
 
 on:
   workflow_call:
@@ -42,13 +42,46 @@ on:
         type: string
         default: ""
       work_branch:
-        description: "If set, the runner creates this branch from origin/base_ref BEFORE Claude runs, so the session starts from the latest main. Claude then commits, pushes and opens the PR itself (its app token can create PRs and trigger CI; GITHUB_TOKEN cannot)."
+        description: "If set, the runner bases this branch on origin/base_ref BEFORE the session, then (after Claude edits) formats, commits, pushes and — with open_pr — opens the PR. All git plumbing is deterministic (no AI cost)."
+        required: false
+        type: string
+        default: ""
+      format_cmd:
+        description: "Formatter run in the runner before committing, e.g. 'cargo fmt --all'."
+        required: false
+        type: string
+        default: ""
+      commit_message:
+        description: "Commit message for the runner-made commit on work_branch."
+        required: false
+        type: string
+        default: "auto-maintain: implement change"
+      open_pr:
+        description: "If true (with work_branch), the runner opens/reuses a PR using GH_PAT so the PR triggers ci.yml (the Actions token cannot create PRs, and its PRs would not trigger CI)."
+        required: false
+        type: boolean
+        default: false
+      pr_base:
+        description: "Base branch for the PR (defaults to base_ref, then main)."
+        required: false
+        type: string
+        default: ""
+      pr_title:
+        description: "Title for the opened PR."
+        required: false
+        type: string
+        default: ""
+      pr_body:
+        description: "Body for the opened PR."
         required: false
         type: string
         default: ""
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
+      GH_PAT:
+        description: "Fine-grained PAT (contents + pull-requests write) used to push and open PRs so ci.yml is triggered. Falls back to GITHUB_TOKEN for push if absent."
+        required: false
     outputs:
       cost_usd:
         description: "Total USD cost of the Claude session."
@@ -56,6 +89,9 @@ on:
       num_turns:
         description: "Number of turns the Claude session took."
         value: ${{ jobs.claude.outputs.num_turns }}
+      pr_number:
+        description: "PR number opened/reused for work_branch (when open_pr is set)."
+        value: ${{ jobs.claude.outputs.pr_number }}
 
 jobs:
   claude:
@@ -70,6 +106,7 @@ jobs:
     outputs:
       cost_usd: ${{ steps.cost.outputs.cost_usd }}
       num_turns: ${{ steps.cost.outputs.num_turns }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -154,3 +191,56 @@ jobs:
           echo "cost_usd=${cost:-0}" >> "$GITHUB_OUTPUT"
           echo "num_turns=${turns:-0}" >> "$GITHUB_OUTPUT"
           echo "Claude session cost: \$${cost:-0} (${turns:-0} turns)" >> "$GITHUB_STEP_SUMMARY"
+
+      # Deterministic git: format Claude's edits, commit and push. Uses GH_PAT so
+      # the branch/PR are attributed to a real user (needed for CI to trigger);
+      # falls back to GITHUB_TOKEN for the push if no PAT is configured.
+      - name: Format, commit and push work branch
+        if: success() && inputs.work_branch != ''
+        env:
+          WORK_BRANCH: ${{ inputs.work_branch }}
+          FORMAT_CMD: ${{ inputs.format_cmd }}
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+          GIT_TOKEN: ${{ secrets.GH_PAT != '' && secrets.GH_PAT || github.token }}
+        run: |
+          if [ -n "$FORMAT_CMD" ]; then
+            echo "Running formatter: $FORMAT_CMD"
+            eval "$FORMAT_CMD"
+          fi
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::warning::Claude produced no changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "$COMMIT_MESSAGE"
+          git push --force \
+            "https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${WORK_BRANCH}"
+
+      # Open (or reuse) the PR with GH_PAT so ci.yml runs on it. No AI cost.
+      - name: Open or reuse pull request
+        id: pr
+        if: success() && inputs.open_pr && inputs.work_branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          WORK_BRANCH: ${{ inputs.work_branch }}
+          PR_BASE: ${{ inputs.pr_base }}
+          BASE_REF: ${{ inputs.base_ref }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_BODY: ${{ inputs.pr_body }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::open_pr requires the GH_PAT secret (Actions token cannot create PRs)."
+            exit 1
+          fi
+          base="${PR_BASE:-${BASE_REF:-main}}"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
+                 --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$WORK_BRANCH" \
+              --title "${PR_TITLE:-$WORK_BRANCH}" --body "${PR_BODY:-Opened by auto-maintain.}"
+            pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$WORK_BRANCH" --state open \
+                   --json number --jq '.[0].number')
+          fi
+          echo "pr_number=${pr}" >> "$GITHUB_OUTPUT"
+          echo "PR for ${WORK_BRANCH}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"

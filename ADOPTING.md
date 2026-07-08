@@ -17,6 +17,7 @@ be turned into backlog issues.
   | Secret | Required | Source |
   |--------|----------|--------|
   | `CLAUDE_CODE_OAUTH_TOKEN` | ✅ | `claude setup-token` |
+  | `GH_PAT` | ✅ for auto-maintain | fine-grained PAT, Contents + Pull requests = write (lets the runner open PRs that trigger CI) |
   | `DISCORD_WEBHOOK_URL` | optional | Discord → Integrations → Webhooks |
 - GitHub Actions enabled. The default `GITHUB_TOKEN` may stay **read-only** —
   each workflow requests exactly the scopes it needs.
@@ -71,17 +72,19 @@ docs/ push ─▶ docs-watch ─▶ (workflow_dispatch) ─▶ generate-backlog
                                                      ├─ backlog (Claude files issues for changed docs)
                                                      └─ persist (commits updated state)
 issue labelled auto-maintain ─▶ auto-maintain:
-    implement (runner bases auto/issue-N on latest main → Claude implements, commits, pushes, OPENS the PR)
-    └─ resolve PR ─▶ comment session cost (reusable-pr-comment)
+    implement: runner branches from main → Claude edits + runs checks to GREEN → runner formats, commits, pushes, opens PR (GH_PAT)
+    └─ comment session cost (reusable-pr-comment)
     the PR triggers ci.yml (fmt · build · clippy · test) ─▶ human merge
 ```
 
-Split of responsibility: the runner deterministically **bases the branch on the
-latest `main`** (so the session never spends turns on that), and Claude does the
-implementation **and opens the PR itself**. The PR must be opened by Claude's app
-token — the Actions `GITHUB_TOKEN` may not create PRs, and PRs it did create
-would not trigger `ci.yml`. Correctness is validated by CI **on the PR**, not in
-the paid session, so a session is never wasted failing checks afterwards.
+Split of responsibility, tuned for cost + correctness:
+- **Runner (no AI cost):** branch from `main`, `cargo fmt`, commit, push, open PR.
+  The PR is opened with **`GH_PAT`** (a real user token) so `ci.yml` fires — the
+  Actions `GITHUB_TOKEN` cannot create PRs, and its PRs wouldn't trigger CI.
+- **Claude (paid):** only implements and runs the exact CI checks
+  (`cargo build && clippy && test`) until green. Same commands as `ci.yml`, so
+  green in-session ⇒ green on the PR. The paid session buys correctness, not git
+  plumbing (which is where earlier runs wasted turns retrying `gh pr create`).
 
 - **Memory:** `specs/backlog-state.json` holds a `sha256` per doc. Only new/
   changed docs are processed; delete an entry (or pass `-f force=true`) to
@@ -104,8 +107,9 @@ These are non-obvious and cost real debugging — don't "simplify" them away:
 | `Unsupported event type: push` | **`docs-watch.yml`** translates a `push` into a `workflow_dispatch`; the Claude action rejects raw `push`. |
 | `Workflow initiated by non-human actor` | **`allowed_bots: "*"`** in `reusable-claude.yml` (the watcher dispatches as the github-actions bot). |
 | 8 permission denials, 0 issues created | Use broad **`Bash(gh:*)`**, not granular `Bash(gh issue create:*)` (multi-word prefixes don't match). |
-| `GitHub Actions is not permitted to create or approve pull requests` | The Actions `GITHUB_TOKEN` cannot open PRs (org/repo setting), and PRs it opens would not trigger `ci.yml` anyway. **Let Claude open the PR** (its app token can, and it triggers CI). The runner only bases the branch on `main`. |
-| Bot PR gets no CI run | Same root cause — a PR opened by `GITHUB_TOKEN` does not fire `on: pull_request`. Claude opening it (app token) does. Don't move PR creation into a runner step. |
+| `GitHub Actions is not permitted to create or approve pull requests` | The Actions `GITHUB_TOKEN` cannot open PRs. Use a **`GH_PAT`** for `git push` + `gh pr create` (a real user token), which also makes the PR trigger `ci.yml`. |
+| Bot PR gets no CI run | A PR opened by `GITHUB_TOKEN` does not fire `on: pull_request`. Open it with the PAT instead. |
+| Session cost too high | The waste is git plumbing (e.g. retried `gh pr create`), not the checks. Do ALL git/PR in the runner (deterministic, no AI) and let Claude spend only on implementing + running the checks to green. |
 
 ## 6. First run
 
