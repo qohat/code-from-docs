@@ -55,7 +55,7 @@ return it in `Run`.
 **Acceptance:** `Run.usage: Usage { steps, tool_calls, chars }`; unit-tested on
 the demo scenario.
 
-### 🚧 C9 — Transcript rendering
+### ✅ C9 — Transcript rendering
 A pure function that renders a `Conversation` to Markdown (and to a compact
 one-line-per-turn form) for logs and PR descriptions.
 **Acceptance:** `render_markdown(&Conversation) -> String`; snapshot-tested;
