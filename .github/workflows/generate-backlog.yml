@@ -40,7 +40,6 @@ jobs:
       contents: read
       issues: write
     with:
-      timeout_minutes: 15
       claude_args: |
         --max-turns 20
         --model claude-sonnet-4-6

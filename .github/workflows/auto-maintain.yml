@@ -37,7 +37,6 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      timeout_minutes: 30
       claude_args: |
         --max-turns 40
         --model claude-sonnet-4-6

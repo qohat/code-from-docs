@@ -21,11 +21,6 @@ on:
         required: false
         type: string
         default: ""
-      timeout_minutes:
-        description: "Job timeout."
-        required: false
-        type: number
-        default: 20
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -34,7 +29,7 @@ jobs:
   claude:
     name: Run Claude Code
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    timeout-minutes: 30
     permissions:
       contents: write
       issues: write
