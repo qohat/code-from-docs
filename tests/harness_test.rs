@@ -1,6 +1,6 @@
 //! Behavioural tests for the functional harness core.
 
-use code_from_docs::agent::{Agent, Decision};
+use code_from_docs::agent::{Agent, Call, Decision};
 use code_from_docs::message::{Conversation, Message, Role};
 use code_from_docs::tool::{Tool, ToolError, Toolbox};
 use code_from_docs::{harness, Outcome};
@@ -118,4 +118,54 @@ fn count_role_tool() {
         .with(Message::tool("result2"))
         .with(Message::user("done"));
     assert_eq!(conv.count_role(Role::Tool), 2);
+}
+
+/// Planner that issues a two-tool batch on the first turn (the first call
+/// intentionally targets an unregistered tool so it errors), then replies
+/// with both observations joined by `|`.
+fn two_tool_batch(conversation: &Conversation) -> Decision {
+    let tool_msgs: Vec<_> = conversation
+        .messages()
+        .iter()
+        .filter(|m| m.role == Role::Tool)
+        .collect();
+
+    if tool_msgs.is_empty() {
+        Decision::UseTools(vec![
+            Call { tool: "unknown".into(), input: "x".into() },
+            Call { tool: "reverse".into(), input: "abc".into() },
+        ])
+    } else {
+        let joined = tool_msgs
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        Decision::Reply(joined)
+    }
+}
+
+#[test]
+fn multi_tool_batch_first_call_errors_second_still_runs() {
+    // "unknown" is not in the toolbox — produces a NotFound error observation.
+    // "reverse" succeeds. Both observations must be appended before the next turn.
+    let tools = Toolbox::new().with(Tool::new("reverse", "", reverse));
+    let agent = Agent::new("t", "sys", two_tool_batch);
+    let run = harness::run(&agent, &tools, "go", 5);
+
+    assert_eq!(
+        run.outcome,
+        Outcome::Replied("error: no such tool: unknown|cba".into())
+    );
+    assert_eq!(run.steps, 2);
+
+    // Both tool observations must appear in the transcript in call order.
+    let tool_contents: Vec<_> = run
+        .conversation
+        .messages()
+        .iter()
+        .filter(|m| m.role == Role::Tool)
+        .map(|m| m.content.as_str())
+        .collect();
+    assert_eq!(tool_contents, ["error: no such tool: unknown", "cba"]);
 }

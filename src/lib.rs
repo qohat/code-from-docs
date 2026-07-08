@@ -12,7 +12,7 @@ pub mod harness;
 pub mod message;
 pub mod tool;
 
-pub use agent::{Agent, Decision, Planner};
+pub use agent::{Agent, Call, Decision, Planner};
 pub use harness::{run, Outcome, Run};
 pub use message::{Conversation, Message, Role};
 pub use tool::{Tool, ToolError, Toolbox};
