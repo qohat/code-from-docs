@@ -54,36 +54,83 @@ jobs:
            acceptance criteria. Honour the functional-core rules (immutability,
            pure planner/tools, no panics, no network in the core).
         3. Create a branch: `auto/issue-${{ github.event.issue.number || inputs.issue_number }}`.
-        4. Implement the change under `src/`. Add or update tests in `tests/`.
-        5. Run `cargo test` and `cargo clippy --all-targets -- -D warnings` and fix
-           until both pass. If cargo is unavailable on the runner, install the Rust
-           toolchain or clearly note in the PR body that CI must validate.
+        4. Work test-first (TDD), always:
+             a. Write the failing test(s) in `tests/` that encode the acceptance
+                criteria. Run `cargo test` and SEE THEM FAIL.
+             b. Implement the minimum code under `src/` to make them pass.
+             c. Refactor with tests still green.
+        5. QUALITY GATE — run these and fix until ALL pass. Do NOT open a PR if any
+           of them fails:
+             - `cargo fmt --all`            (format)
+             - `cargo build --all-targets`  (build)
+             - `cargo clippy --all-targets -- -D warnings`
+             - `cargo test --all-targets`
+           If cargo is unavailable on the runner, install the Rust toolchain first
+           (e.g. via rustup) — do not skip the gate.
         6. Commit and push the branch.
         7. Open a PR against `main` with:
              - Title: the issue title.
              - Body: "Closes #${{ github.event.issue.number || inputs.issue_number }}",
-               a short summary, and testing notes.
+               a summary, and testing notes stating that fmt/build/clippy/test all
+               passed locally and that the change was built test-first.
         Do NOT merge. Leave the PR for a human to review.
     secrets: inherit
 
-  notify-success:
-    name: Notify (success)
+  # Find the PR that `implement` opened for this issue's branch.
+  resolve-pr:
+    name: Resolve PR number
     needs: implement
     if: success()
-    uses: ./.github/workflows/reusable-discord.yml
-    with:
-      status: success
-      title: "🤖 Auto-maintain opened a PR"
-      message: "An issue was implemented on a branch and a PR is ready for review."
-    secrets: inherit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.find.outputs.pr }}
+    steps:
+      - name: Find PR for branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          branch="auto/issue-${ISSUE}"
+          pr=$(gh pr list --repo "${GITHUB_REPOSITORY}" --head "${branch}" \
+                 --state all --json number --jq '.[0].number' 2>/dev/null || true)
+          echo "pr=${pr}" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR for ${branch}: #${pr:-<none>}" >> "$GITHUB_STEP_SUMMARY"
 
-  notify-failure:
-    name: Notify (failure)
-    needs: implement
-    if: failure()
-    uses: ./.github/workflows/reusable-discord.yml
+  # Report the Claude session cost as a comment on that PR (reusable block).
+  comment-cost:
+    name: Comment session cost
+    needs: [implement, resolve-pr]
+    if: success() && needs.resolve-pr.outputs.pr != ''
+    permissions:
+      pull-requests: write
+    uses: ./.github/workflows/reusable-pr-comment.yml
     with:
-      status: failure
-      title: "❌ Auto-maintain failed"
-      message: "Implementing an issue failed. Check the workflow run logs."
+      pr_number: ${{ needs.resolve-pr.outputs.pr }}
+      body: |
+        ### 🤖 Auto-maintain — session cost
+
+        | Metric | Value |
+        |--------|-------|
+        | Cost (USD) | $${{ needs.implement.outputs.cost_usd }} |
+        | Turns | ${{ needs.implement.outputs.num_turns }} |
+        | Issue | #${{ github.event.issue.number || inputs.issue_number }} |
+        | Model | claude-sonnet-4-6 |
+
+        [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  # Single outcome notification (skip when the label didn't match / nothing ran).
+  notify:
+    name: Notify outcome
+    needs: implement
+    if: always() && needs.implement.result != 'skipped'
+    uses: ./.github/workflows/reusable-notify.yml
+    with:
+      status: ${{ needs.implement.result == 'success' && 'success' || 'failure' }}
+      context: "Auto-maintain"
+      success_message: "An issue was implemented on a branch and a PR is ready for review."
+      failure_message: "Implementing an issue failed. Check the workflow run logs."
     secrets: inherit

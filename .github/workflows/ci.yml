@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   check:
-    name: fmt · clippy · test
+    name: fmt · build · clippy · test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -42,6 +42,9 @@ jobs:
 
       - name: Format check
         run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --all-targets
 
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings

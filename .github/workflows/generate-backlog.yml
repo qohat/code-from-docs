@@ -110,13 +110,21 @@ jobs:
         5. For each "Planned" capability in the changed docs with no matching
            issue, create ONE small, independently-implementable issue:
              - Title: a concise imperative spec (e.g. "Add retry policy to tools").
-             - Body: the behaviour, an acceptance-criteria checklist adapted from
-               the doc, and a reference to the doc section (e.g. "docs/02 · C6").
+             - Body: MUST use this constant structure so every issue is consistent:
+                 * "## Behaviour" — what it should do (from the doc).
+                 * "## Acceptance criteria" — a checklist adapted from the doc.
+                 * "## How to build it" — the constant standard, verbatim:
+                     "Follow CLAUDE.md. Work test-first (TDD): write failing tests,
+                      then implement. Before opening the PR, `cargo fmt --all`,
+                      `cargo build --all-targets`, `cargo clippy --all-targets -- -D warnings`
+                      and `cargo test --all-targets` must all pass. Flip this
+                      capability 🚧→✅ in docs/02-agent-harness.md in the same PR."
+                 * "## Source" — the doc section (e.g. "docs/02 · C6").
              - Labels: `spec` and `auto-maintain` (`gh issue create ... --label spec --label auto-maintain`).
         6. If "${{ inputs.dry_run }}" is "true": DO NOT create anything — print the
            issues you would create and stop.
 
-        Keep issues small. Do not modify any files.
+        Keep issues small and their bodies consistent. Do not modify any files.
     secrets: inherit
 
   # 3) Record the processed docs' hashes so they are not re-filed next time.
@@ -156,24 +164,15 @@ jobs:
             git push
           fi
 
-  notify-success:
-    name: Notify (success)
+  # Single outcome notification (only when there was work to do).
+  notify:
+    name: Notify outcome
     needs: [detect, backlog, persist]
-    if: success() && needs.detect.outputs.any == 'true'
-    uses: ./.github/workflows/reusable-discord.yml
+    if: always() && needs.detect.outputs.any == 'true'
+    uses: ./.github/workflows/reusable-notify.yml
     with:
-      status: success
-      title: "🗂️ Backlog generated from docs"
-      message: "Processed changed docs and updated the issue backlog + state file."
-    secrets: inherit
-
-  notify-failure:
-    name: Notify (failure)
-    needs: [detect, backlog, persist]
-    if: failure()
-    uses: ./.github/workflows/reusable-discord.yml
-    with:
-      status: failure
-      title: "❌ Backlog generation failed"
-      message: "generate-backlog failed. Check the workflow run logs."
+      status: ${{ needs.backlog.result == 'success' && 'success' || 'failure' }}
+      context: "Backlog generation"
+      success_message: "Processed changed docs and updated the issue backlog + state file."
+      failure_message: "generate-backlog failed. Check the workflow run logs."
     secrets: inherit
