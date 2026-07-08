@@ -30,10 +30,11 @@ jobs:
     name: Run Claude Code
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    # No permissions block here on purpose: a reusable workflow that requests
+    # MORE than the caller granted fails the whole run at startup. Instead this
+    # job inherits whatever the calling workflow grants, so each caller keeps
+    # its own least-privilege `permissions:` (backlog = issues only;
+    # auto-maintain = contents/issues/PR write).
     steps:
       - name: Checkout
         uses: actions/checkout@v4
