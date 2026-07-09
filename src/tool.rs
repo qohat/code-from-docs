@@ -1,10 +1,19 @@
 //! Tools are pure functions from a string input to a string output.
 //!
-//! Keeping tools pure (a plain `fn` pointer, not a closure over mutable state)
-//! means the whole harness stays deterministic and trivially testable.
+//! Keeping tools free of mutable state means the whole harness stays
+//! deterministic and trivially testable.
+//!
+//! [`TypedTool`] lets a tool declare typed JSON input/output via `serde`,
+//! while preserving the same `invoke(&str) -> Result<String, ToolError>`
+//! interface used by [`Toolbox`].
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
+
+use serde::{de::DeserializeOwned, Serialize};
+
+type ToolFn = Arc<dyn Fn(&str) -> Result<String, ToolError> + Send + Sync>;
 
 /// Why a tool invocation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,23 +96,36 @@ impl RetryWrapper {
 }
 
 /// A named, side-effect-free capability the agent can invoke.
-#[derive(Debug, Clone)]
+///
+/// `run` is stored as an `Arc<dyn Fn>` so that both plain function pointers
+/// and closures (e.g. those produced by [`TypedTool::into_tool`]) can be
+/// registered in the same [`Toolbox`].
+#[derive(Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
-    run: fn(&str) -> Result<String, ToolError>,
+    run: ToolFn,
+}
+
+impl fmt::Debug for Tool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tool")
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Tool {
     pub fn new(
         name: impl Into<String>,
         description: impl Into<String>,
-        run: fn(&str) -> Result<String, ToolError>,
+        run: impl Fn(&str) -> Result<String, ToolError> + Send + Sync + 'static,
     ) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
-            run,
+            run: Arc::new(run),
         }
     }
 
@@ -197,5 +219,78 @@ impl Toolbox {
     /// Tool names in sorted order.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.tools.keys().map(String::as_str)
+    }
+}
+
+// ── Typed tool ────────────────────────────────────────────────────────────────
+
+/// A typed adapter that deserializes JSON `input` to `In`, calls a pure
+/// function, and serializes `Out` back to a JSON string.
+///
+/// Call [`TypedTool::into_tool`] to convert it into a plain [`Tool`] that can
+/// be registered in a [`Toolbox`].  Invalid JSON input produces
+/// [`ToolError::InvalidInput`].
+pub struct TypedTool<In, Out> {
+    pub name: String,
+    pub description: String,
+    run: fn(In) -> Result<Out, ToolError>,
+}
+
+impl<In, Out> TypedTool<In, Out> {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        run: fn(In) -> Result<Out, ToolError>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            run,
+        }
+    }
+}
+
+impl<In, Out> Clone for TypedTool<In, Out> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            run: self.run,
+        }
+    }
+}
+
+impl<In, Out> fmt::Debug for TypedTool<In, Out> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TypedTool")
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<In, Out> TypedTool<In, Out>
+where
+    In: DeserializeOwned + 'static,
+    Out: Serialize + 'static,
+{
+    /// Deserialize `input` as JSON `In`, run the typed function, and serialize
+    /// the `Out` result back to a JSON string.
+    pub fn invoke(&self, input: &str) -> Result<String, ToolError> {
+        let parsed: In =
+            serde_json::from_str(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let out = (self.run)(parsed)?;
+        serde_json::to_string(&out).map_err(|e| ToolError::InvalidInput(e.to_string()))
+    }
+
+    /// Convert into a plain [`Tool`] that can be stored in a [`Toolbox`].
+    pub fn into_tool(self) -> Tool {
+        let run = self.run;
+        Tool::new(self.name, self.description, move |input: &str| {
+            let parsed: In =
+                serde_json::from_str(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+            let out = run(parsed)?;
+            serde_json::to_string(&out).map_err(|e| ToolError::InvalidInput(e.to_string()))
+        })
     }
 }
